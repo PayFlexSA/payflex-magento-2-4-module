@@ -1,0 +1,47 @@
+<div class="payment-method"
+	data-bind="css: {'_active': (getCode() == isChecked())}">
+	<div class="payment-method-title field choice">
+		<input type="radio" style="float: left;" name="payment[method]" class="radio"
+			data-bind="attr: {'id': getCode()}, value: getCode(), checked: isChecked, click: selectPaymentMethod, visible: isRadioButtonVisible()" />
+		<label  data-bind="attr: {'for': getCode()}" class="label">
+			<span>
+				<img class="payment-icon" style="margin-top: -5px;" src="https://widgets.payflex.co.za/assets/partpay_new.png" />
+				<img  class="payment-icon" style="float: right;margin-top: -10px;" src="https://widgets.payflex.co.za/assets/cards.png">
+			</span>
+		</label>
+		
+	</div>
+	<div class="payment-method-content">
+		<div class="payment-method-billing-address">
+			<!-- ko foreach: $parent.getRegion(getBillingAddressFormName()) -->
+			<!-- ko template: getTemplate() -->
+			<!-- /ko -->
+			<!--/ko-->
+		</div>
+		<div class="checkout-agreements-block">
+			<!-- ko foreach: $parent.getRegion('before-place-order') -->
+			<!-- ko template: getTemplate() -->
+			<!-- /ko -->
+			<!--/ko-->
+		</div>
+
+		<!-- <div class="form-alt" style="padding-top: 2em;">PayFlex – Flex the way you pay. Pay with any Visa or Mastercard.</div> -->
+
+		<!-- PaymentInformationManagement::savePaymentInformationAndPlaceOrder -->
+		<!-- QuoteManagement::placeOrder -->
+		<!-- OrderService::place -->
+		<div class="actions-toolbar">
+			<div class="primary">
+				<button class="action primary checkout" type="submit"
+					data-bind="
+                        click: placeOrder,
+                        attr: {title: $t('Continue to PayFlex')},
+                        enable: (getCode() == isChecked())
+                        "
+					disabled>
+					<span data-bind="i18n: 'Continue to PayFlex'"></span>
+				</button>
+			</div>
+		</div>
+	</div>
+</div>

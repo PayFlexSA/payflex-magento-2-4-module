@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Cron:etc/crontab.xsd">
+    <group id="default">
+       <job name="payflex_gateway_update_merchant_configuration" instance="Payflex\Gateway\Cron\MerchantConfiguration" method="execute">
+            <config_path>payment/payflex_gateway/cron_frequency</config_path>
+        </job>
+    </group>
+    <group id="default">
+       <job name="payflex_gateway_check_order_status" instance="Payflex\Gateway\Cron\CheckOrderStatus" method="execute">
+            <config_path>payment/payflex_gateway/cron_frequency</config_path>    
+        </job>
+    </group>
+</config>

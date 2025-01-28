@@ -1,0 +1,107 @@
+<?php
+    /** @var \Payflex\Gateway\Helper\Support $helper */
+    $support = \Magento\Framework\App\ObjectManager::getInstance()->get('Payflex\Gateway\Helper\Support');
+?>
+<div class="admin__page-section">
+    <div class="admin__page-section-item">
+        <div class="admin__page-section-item-content">
+            <div class="admin__page-section-item-title">
+                <span class="title">Payflex Module Information</span>
+            </div>
+            <div class="admin__page-section-item-content">
+                <table class="admin__table-secondary">
+                    <tbody>
+                        <tr>
+                            <th>Return to payflex settings</th>
+                            <td><a href="<?php echo $this->getUrl('adminhtml/system_config/edit/section/payflex'); ?>">Payflex Settings</a></td>
+                        </tr>
+                        <tr>
+                            <th>Magento version</th>
+                            <td><?php echo $support->getMagentoVersion(); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Payflex Module version</th>
+                            <td><?php echo $support->getModuleVersion(); ?></td>
+                        </tr>
+                        <tr>
+                            <th>PHP Version</th>
+                            <td><?php echo $support->getPHPVersion(); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Payflex API Status</th>
+                            <td>
+                                <?php if($support->validAccessToken()): ?>
+                                    <span style="color: green;">Authentication Successfull <small>(<?=substr($support->getAccessToken(), 0, 20)?>...)</small></span>
+                                <?php else: ?>
+                                    <span style="color: red;">Invalid Credentials or issue connecting to Payflex</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Payflex API Config</th>
+                            <td>
+                                <?php echo $support->getFormattedPayflexEnvironment(); ?>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!--         $html = "<div class='environment-table'>";
+        foreach($environment as $env => $data)
+        {
+            $html .= "<div class='environment-row'>";
+            $html .= "<div class='env-detail-row'>";
+            $html .= "<span class='env-header'>Environment</span>";
+            $html .= "<span class='env-detail'>$env</span>";
+            $html .= "</div>";
+            foreach($data as $key => $value)
+            {
+                $html .= "<div class='env-detail-row'>";
+                $html .= "<span class='env-header'>$key</span>";
+                $html .= "<span class='env-detail'>$value</span>";
+                $html .= "</div>";
+            }
+            $html .= "</div class='environment-row'>";;
+        }
+        $html .= "</div>"; -->
+<style>
+    .environment-table
+    {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        width: 100%;
+    }
+    .environment-row
+    {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        padding-block: 10px;
+        border-bottom: 1px solid #ccc;
+    }
+    .environment-row:last-child
+    {
+        border-bottom: none;
+    }
+    .env-detail-row
+    {
+        display: flex;
+        flex-direction: row;
+        width: 100%;
+    }
+    .env-header
+    {
+        /* width: 50%; */
+        text-transform: capitalize;
+        min-width: 120px;
+        font-weight: bold;
+    }
+    
+
+    
+</style>

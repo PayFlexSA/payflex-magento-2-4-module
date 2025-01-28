@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Webapi:etc/webapi.xsd">
+
+    <!-- Managing Guest Cart Payment -->
+    
+    <route url="/V1/guest-carts/:cartId/payflex/selected-payment-method" method="PUT">
+        <service class="Payflex\Gateway\Api\GuestPayflexManagementInterface" method="set"/>
+        <resources>
+            <resource ref="anonymous" />
+        </resources>
+    </route>
+
+    <!-- Managing my Cart Payment -->
+
+    <route url="/V1/carts/mine/payflex/selected-payment-method" method="PUT">
+        <service class="Payflex\Gateway\Api\PayflexManagementInterface" method="set"/>
+        <resources>
+            <resource ref="self" />
+        </resources>
+        <data>
+            <parameter name="cartId" force="true">%cart_id%</parameter>
+        </data>
+    </route>
+
+</routes>

@@ -1,0 +1,32 @@
+{
+    "name": "payflex/gateway",
+    "description": "Payflex Gateway",
+    "require": {
+      "php": "~7.3|~7.4|~8.0.0",
+      "magento/module-store": "*",
+      "magento/module-theme": "*",
+      "magento/module-widget": "*",
+      "magento/module-backend": "*",
+      "magento/module-catalog": "*",
+      "magento/module-email": "*",
+      "magento/module-ui": "*",
+      "magento/module-variable": "*",
+      "magento/module-media-storage": "*",
+      "magento/framework": "*",
+      "magento/magento-composer-installer": "*"
+    },
+    "type": "magento2-module",
+    "version": "1.1.6",
+    "license": [
+        "OSL-3.0",
+        "AFL-3.0"
+    ],
+    "extra": {
+        "map": [
+            [
+                "*",
+                "Payflex/Gateway"
+            ]
+        ]
+    }
+}

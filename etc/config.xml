@@ -1,0 +1,41 @@
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+	<default>
+	<csp>
+        <policies>
+            <storefront>
+                <frame-ancestors>
+                    <inline>0</inline>
+                </frame-ancestors>
+            </storefront>
+            <admin>
+                <frame-ancestors>
+                    <inline>0</inline>
+                </frame-ancestors>
+            </admin>
+        </policies>
+    </csp>
+		<payment>
+			<payflex_gateway>
+				<model>Payflex\Gateway\Model\Payment</model>
+				<active>1</active>
+				<payment_action>order</payment_action>
+				<order_status>pending_payflex</order_status>
+				<title>PayFlex</title>
+				<allowspecific>0</allowspecific>
+				<!-- <api_endpoint>https://api.payflex.co.za</api_endpoint>
+				<auth_token_endpoint>https://payflex.eu.auth0.com/oauth/token</auth_token_endpoint>
+				<api_audience>https://auth-production.payflex.co.za</api_audience> -->
+				<payflex_environment>0</payflex_environment>
+				<min>10</min>
+				<max>1000</max>
+				<debug_flag>1</debug_flag>
+				<order_email>0</order_email>
+                <invoice_email>1</invoice_email>
+				<sort_order>1</sort_order>
+				<payflex_cron>1</payflex_cron>
+				<cron_frequency>*/5 * * * *</cron_frequency>
+			</payflex_gateway>
+		</payment>
+	</default>
+</config>

@@ -1,0 +1,26 @@
+<?php /** @var $block \Payflex\Gateway\Block\Redirect */ ?>
+<?php if($block->getSuccess()) :?>
+<p>You will be redirected to the PayFlex website in a few seconds</p>
+
+<form action="<?php echo $block->getRedirectUrl() ?>" method="get"
+	id="payflex_redirect_form">
+	<input id="payflex_redirect" type="submit"
+		value="Click here if you are not redirected within 10 seconds..." />
+</form>
+
+<script type="text/javascript">
+    	document.getElementById("payflex_redirect_form").submit();
+    </script>
+<?php else: ?>
+<p><?php echo htmlentities($block->getError()) ?> </p>
+<?php if($block->getShowContinueButton()) :?>
+<div class="actions-toolbar">
+	<div class="primary">
+		<a class="action primary continue"
+			href="<?php /* @escapeNotVerified */ echo $block->getUrl() ?>"><span><?php /* @escapeNotVerified */ echo __('Continue Shopping') ?></span></a>
+	</div>
+</div>
+<?php endif;?>
+	
+<?php endif;?>
+

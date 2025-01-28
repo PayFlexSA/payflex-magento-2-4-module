@@ -1,0 +1,11 @@
+<?php /** @var $block \Payflex\Gateway\Block\Processed */ ?>
+<div class="checkout-success">
+
+	<p>The order is processed</p>
+	<div class="actions-toolbar">
+		<div class="primary">
+			<a class="action primary continue"
+				href="<?php /* @escapeNotVerified */ echo $block->getUrl() ?>"><span><?php /* @escapeNotVerified */ echo __('Continue Shopping') ?></span></a>
+		</div>
+	</div>
+</div>
