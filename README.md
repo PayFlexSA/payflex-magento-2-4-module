@@ -15,7 +15,7 @@ Follow these steps to install the Payflex Gateway plugin:
 
 ### 1. Copy Plugin to Directory
 
-- Paste the plugin into the appropriate directory: `/app/code/`
+- Paste the plugin into the appropriate directory: `/app/code/` for a release, or `/app/code/Payflex/Gateway` if you're using the repo directly
 - This README.md should be located here if done correctly: `/app/code/Payflex/Gateway/README.md`
 
 ### 2. Run Magento Setup Commands
