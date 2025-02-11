@@ -298,11 +298,16 @@ class PaymentUtil extends AbstractHelper
                   $order = $objectManager->get( '\Magento\Sales\Model\Order' )->loadByIncrementId( $orderIncrementId );
                   if($order->getId()) {
                       $this->_logger->info(__METHOD__.'Merchant REF : '.$order->getId());
-                      $status = \Magento\Sales\Model\Order::STATE_PROCESSING;
+
+                      $status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
+                      $state  = $this->_configHelper->getPayflexNewOrderState($this->_storeManager->getStore()->getId());
+
                       $order->setStatus( $status );
-                      $order->setState( $status );
+                      $order->setState( $state );
                       $order->save();
                       $this->_logger->info(__METHOD__.'Order status set to Processing: '.$order->getId());
+                      // Update order status message
+                      $order->addStatusHistoryComment( __( 'PayFlex CRON: Payment was successful for order ID: '. $payflexOrderId ) )->setIsCustomerNotified( true )->save();
                       try {
                         $this->generateInvoice( $order );
                         $this->createTransaction( $order, $payflexApiResponse );

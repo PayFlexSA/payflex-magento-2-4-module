@@ -2,8 +2,6 @@
 
 // Magento\Framework\DataObject implements the magic call function
 
-// Create payment module http://www.josephmcdermott.co.uk/basics-creating-magento2-payment-method
-// https://github.com/magento/magento2-samples/tree/master/sample-module-payment-provider
 namespace Payflex\Gateway\Model;
 
 class PaymentHelper

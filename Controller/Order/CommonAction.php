@@ -236,16 +236,10 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
     {
         $storeId = $this->_storeManager->getStore()->getId();
         $order_successful_email = $this->_configHelper->getOrderEmail($storeId);
-
-
-        $state  = Order::STATE_PROCESSING;
-        $status = Order::STATE_PROCESSING;
         
-        $config_state  = $this->_configHelper->getPayflexNewOrderState($this->_storeManager->getStore()->getId());
-        $config_status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
-        
-        if($config_state)  $state = $config_state;
-        if($config_status) $status = $config_status;
+        $state  = $this->_configHelper->getPayflexNewOrderState($this->_storeManager->getStore()->getId());
+        $status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
+
 
         if ( $order_successful_email != '0' ) {
             $this->OrderSender->send( $order );
@@ -264,7 +258,7 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
         // Set order status to custom status
         $invoice_order = $invoice->getOrder();
         
-        $invoice_order->setStatus( $status );   
+        $invoice_order->setStatus( $status );
         $invoice_order->setState( $state );
         $invoice_order->addStatusHistoryComment('Payment confirmed, Payflex Transaction ID: '.$invoice->getTransactionId(), $invoice_order->getStatus());
         $invoice_order->save();

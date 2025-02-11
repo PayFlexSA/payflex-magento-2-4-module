@@ -1,7 +1,5 @@
 <?php
-// http://www.mage-world.com/blog/how-to-use-model-and-collection-in-magento-2.html
-// http://stackoverflow.com/questions/31983546/in-magento-2-what-is-the-correct-way-for-getmodel/31984198
-// http://stackoverflow.com/questions/31920769/how-to-save-data-using-model-in-magento2
+
 namespace Payflex\Gateway\Model;
 
 use \Magento\Framework\Model\AbstractModel;

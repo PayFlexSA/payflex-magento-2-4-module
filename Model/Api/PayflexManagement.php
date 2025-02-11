@@ -3,9 +3,6 @@ namespace Payflex\Gateway\Model\Api;
 
 class PayflexManagement implements \Payflex\Gateway\Api\PayflexManagementInterface
 {
-    // http://devdocs.magento.com/guides/v2.0/extension-dev-guide/service-contracts/service-to-web-service.html
-
-    
     
     /**
      * 

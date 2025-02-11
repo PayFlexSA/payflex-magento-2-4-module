@@ -3,9 +3,7 @@ namespace Payflex\Gateway\Model\Api;
 
 class GuestPayflexManagement implements \Payflex\Gateway\Api\GuestPayflexManagementInterface
 {
-    // http://devdocs.magento.com/guides/v2.0/extension-dev-guide/service-contracts/service-to-web-service.html
-    
-        /**
+    /**
      * 
      * @var \Payflex\Gateway\Model\Api\ApiPayflexHelper
      */

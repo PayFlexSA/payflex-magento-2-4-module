@@ -1,15 +1,4 @@
 <?php
-// reference:
-// https://www.ashsmith.io/2014/12/simple-magento2-controller-module/
-// http://www.webmull.com/magento-2-create-simple-hello-world-module/
-// http://www.clounce.com/magento/a-very-basic-magento-2-module
-// http://www.clounce.com/magento/a-very-basic-magento-2-module-with-parameterized-template
-
-// custom module: http://magento.stackexchange.com/questions/54609/custom-module-not-working-in-magento-2
-
-// http://devdocs.magento.com/guides/v2.0/frontend-dev-guide/bk-frontend-dev-guide.html
-
-// http://stackoverflow.com/questions/32356635/blank-page-in-a-custom-module-magento-2-beta-merchant-version-1-0-0
 namespace Payflex\Gateway\Controller\Order;
 
 class Redirect extends \Magento\Framework\App\Action\Action

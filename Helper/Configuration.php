@@ -4,6 +4,7 @@ namespace Payflex\Gateway\Helper;
 
 use Magento\Framework\App\Helper\AbstractHelper;
 use Magento\Framework\App\Helper\Context;
+use Magento\Sales\Model\Order;
 
 class Configuration extends AbstractHelper
 {
@@ -85,7 +86,7 @@ class Configuration extends AbstractHelper
     {
         $status = $this->_getPayflexStoreConfig("new_order_status", $storeId);
         if(empty($status) OR is_null($status))
-            return 'processing';
+            return Order::STATE_PROCESSING;
         
         return $status;
     }
@@ -93,7 +94,7 @@ class Configuration extends AbstractHelper
     {
         $state = $this->_getPayflexStoreConfig("new_order_state", $storeId);
         if(empty($state) OR is_null($state))
-            return 'processing';
+            return Order::STATE_PROCESSING;
         
         return $state;
     }

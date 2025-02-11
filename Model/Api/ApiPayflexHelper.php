@@ -5,7 +5,6 @@ use \Magento\Framework\Exception\State\InvalidTransitionException;
 
 class ApiPayflexHelper
 {
-    // http://devdocs.magento.com/guides/v2.0/extension-dev-guide/service-contracts/service-to-web-service.html
 
     /**
      *

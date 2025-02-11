@@ -3,7 +3,6 @@ namespace Payflex\Gateway\Model\Api;
 
 class ApiCommonHelper
 {
-    // http://devdocs.magento.com/guides/v2.0/extension-dev-guide/service-contracts/service-to-web-service.html
     /**
      *
      * @var /Magento\Quote\Model\QuoteIdMaskFactory
