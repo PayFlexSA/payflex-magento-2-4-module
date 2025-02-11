@@ -7,6 +7,7 @@ The Payflex Magento 2.4 Gateway plugin integrates Payflex with your Magento stor
 ## Tested Magento2 Versions
 
 - Magento 2.4.5 (Currently in testing)
+- Magento 2.4.6 (Currently in testing)
 - Magento 2.4.7 (Currently in testing)
 
 ## Installation Steps
