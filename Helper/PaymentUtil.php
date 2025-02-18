@@ -170,18 +170,25 @@ class PaymentUtil extends AbstractHelper
 
     public function getWidgetHtml($totalAmount)
     {
-        $storeId = $this->_storeManager->getStore()->getId();
+
+        if (!$this->_configHelper->getEnabled()) return false;
+
+        $storeId                      = $this->_storeManager->getStore()->getId();
         $merchantConfigurationManager = $this->_objectManager->create("\Payflex\Gateway\Model\Configuration");
-        $configurationModel = $merchantConfigurationManager->load($storeId, "store_id");
-        if ($configurationModel && !$configurationModel->getId()) {
+        $configurationModel           = $merchantConfigurationManager->load($storeId, "store_id");
+
+        if ($configurationModel && !$configurationModel->getId())
+        {
             $configurationModel = $this->refreshMerchantConfiguration($configurationModel, $storeId);
         }
 
-        if ($configurationModel->getMin() && $configurationModel->getMax()) {
+        if ($configurationModel->getMin() && $configurationModel->getMax())
+        {
             $merchantName = $this->_configHelper->getMerchantName($storeId) ?: 'your-merchant-name';
             $merchantName = urlencode(str_replace(' ', '-', $merchantName));
 
-            if($this->_configHelper->getProductWidget($storeId)){
+            if($this->_configHelper->getProductWidget($storeId))
+            {
                 if($merchantName AND $merchantName != 'your-merchant-name')
                 {
                   return '<script async src="https://widgets.payflex.co.za/' . $merchantName . '/payflex-widget-2.0.0.js?type=calculator&min=' . $configurationModel->getMin() . '&max=' . $configurationModel->getMax() . '&amount=' . $totalAmount . '" type="application/javascript"></script>';
@@ -190,7 +197,8 @@ class PaymentUtil extends AbstractHelper
                 {
                   return '<script async src="https://widgets.payflex.co.za/payflex-widget-2.0.0.js?type=calculator&min=' . $configurationModel->getMin() . '&max=' . $configurationModel->getMax() . '&amount=' . $totalAmount . '" type="application/javascript"></script>';
                 }
-            }else{
+            }
+            else{
                 return;
             }
         }
