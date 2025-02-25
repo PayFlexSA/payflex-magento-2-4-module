@@ -269,7 +269,7 @@ class PaymentUtil extends AbstractHelper
       echo "Payflex: CRON is running".PHP_EOL;
       $this->_logger->info(__METHOD__ .' for Store ID:'.$storeId);
       $orderFromDateTime = date("Y-m-d H:i:s", strtotime('-24 hours'));
-      $orderToDateTime = date("Y-m-d H:i:s", strtotime('-20 minutes'));
+      $orderToDateTime = date("Y-m-d H:i:s", strtotime('-30 minutes'));
       $ocf = $this->_orderCollectionFactory->create();
       $ocf->addAttributeToSelect( 'entity_id');
       $ocf->addAttributeToSelect('increment_id');
