@@ -46,15 +46,22 @@
                         <tr>
                             <th>CRON Info</th>
                             <td>
-                                <div class="order-title"> Pending Orders, these are orders that haven't been processed yet, either because the user hasn't finished yet, or didn't return from the gateway directly</div>
-                                <?php foreach($support->getPendingOrders() AS $order ): ?>
-                                    <div class="order-info">
-                                        <span>Order ID: <a href="<?=$order['order_link']?>">#<?=$order['order_id']?></a></span>
-                                        <span style="padding-left:10px;">Order Date: <?=$order['order_date']?></span>
-                                        <span style="padding-left:10px;">Order Status: <?=$order['order_status']?></span>
-                                        <span style="padding-left:10px;">CRON Delay: <?=$order['cron_till_time']?></span>
-                                    </div>
-                                <?php endforeach;?>
+                                <?php $cron_orders = $support->getPendingOrders();?>
+                                <div class="order-title"> Pending Orders. These are orders that haven't been processed yet, either because the user hasn't finished yet, or didn't return from the gateway directly.</div>
+                                <div class="magento-cron-ran-time">Cron Last Ran: <?=$support->getLastCronRanTime()?></div>
+                                <br/>
+                                <?php if(count($cron_orders) > 0):?>
+                                    <?php foreach($cron_orders AS $order ): ?>
+                                        <div class="order-info">
+                                            <span>Order ID: <a href="<?=$order['order_link']?>">#<?=$order['order_id']?></a></span>
+                                            <span style="padding-left:10px;">Order Date: <?=$order['order_date']?></span>
+                                            <span style="padding-left:10px;">Order Status: <?=$order['order_status']?></span>
+                                            <span style="padding-left:10px;">CRON Delay: <?=$order['cron_till_time']?></span>
+                                        </div>
+                                    <?php endforeach;?>
+                                <?php else:?>
+                                    <div class="order-info">No Pending Orders</div>
+                                <?php endif;?>
                             </td>
                         </tr>
                     </tbody>
