@@ -43,6 +43,20 @@
                                 <?php echo $support->getFormattedPayflexEnvironment(); ?>
                             </td>
                         </tr>
+                        <tr>
+                            <th>CRON Info</th>
+                            <td>
+                                <div class="order-title"> Pending Orders, these are orders that haven't been processed yet, either because the user hasn't finished yet, or didn't return from the gateway directly</div>
+                                <?php foreach($support->getPendingOrders() AS $order ): ?>
+                                    <div class="order-info">
+                                        <span>Order ID: <a href="<?=$order['order_link']?>">#<?=$order['order_id']?></a></span>
+                                        <span style="padding-left:10px;">Order Date: <?=$order['order_date']?></span>
+                                        <span style="padding-left:10px;">Order Status: <?=$order['order_status']?></span>
+                                        <span style="padding-left:10px;">CRON Delay: <?=$order['cron_till_time']?></span>
+                                    </div>
+                                <?php endforeach;?>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -101,7 +115,14 @@
         min-width: 120px;
         font-weight: bold;
     }
-    
+    .order-info{
+        padding: 10px;
+        border: 1px solid #ccc;
+        margin-bottom: 10px;
+    }
+    .order-info span{
+        display: block;
+    }
 
     
 </style>

@@ -174,23 +174,29 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
             return;
         }
         if (!$success || in_array($response['orderStatus'], ['Declined', 'Abandoned']) && $response['merchantReference'] == $orderIncrementId) {
-            if($orderInfo->getStatus() != Order::STATE_PROCESSING){       
-                $orderInfo->setEmailSent(0);
-                $orderInfo->setState(Order::STATE_CANCELED)
-                ->setStatus(Order::STATE_CANCELED);
-                if($orderInfo->canCancel()) {
+            $order_processing_status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
+
+            if($orderInfo->getStatus() != $order_processing_status)
+            {
+                if($orderInfo->canCancel())
+                {
+                    $orderInfo->setEmailSent(0);
+                    $orderInfo->setState(Order::STATE_CANCELED)
+                    ->setStatus(Order::STATE_CANCELED);
                     $this->orderManagement->cancel($orderInfo->getId());
-                    $orderInfo->addStatusHistoryComment('Transaction has been cancelled or declined from payflex window')->save();
+                    $orderInfo->addStatusHistoryComment('Payflex: Order has been cancelled. Order ID: '.$orderIncrementId);
                     $orderInfo->cancel();
                     $orderInfo->save();
+
+                    $payment = $orderInfo->getPayment();
+                    $this->_savePaymentInfoForFailedPayment($payment);
+                    $error = "Transaction has been cancelled or declined Order ID: ".$orderIncrementId;
+                    $this->_logger->info($error);
+                    $this->_checkoutSession->restoreQuote();
+                    $this->_redirectToCartPageWithError($error);
+
                 }
             }
-            $payment = $orderInfo->getPayment();
-            $this->_savePaymentInfoForFailedPayment($payment);
-            $error = "Transaction has been cancelled or declined";
-            $this->_logger->info($error);
-            $this->_checkoutSession->restoreQuote();
-            $this->_redirectToCartPageWithError($error);
             return;
         }
 

@@ -3,6 +3,7 @@ namespace Payflex\Gateway\Helper;
 
 use Magento\Framework\App\Helper\AbstractHelper;
 use Magento\Framework\App\Helper\Context;
+use Magento\Sales\Model\Order;
 
 class PaymentUtil extends AbstractHelper
 {
@@ -265,10 +266,10 @@ class PaymentUtil extends AbstractHelper
     public function checkOrderStatus($storeId)
     {  
       $pMethod = 'payflex_gateway';
-      echo "Payflex CRON is running".PHP_EOL;
+      echo "Payflex: CRON is running".PHP_EOL;
       $this->_logger->info(__METHOD__ .' for Store ID:'.$storeId);
       $orderFromDateTime = date("Y-m-d H:i:s", strtotime('-24 hours'));
-      $orderToDateTime = date("Y-m-d H:i:s", strtotime('-30 minutes'));
+      $orderToDateTime = date("Y-m-d H:i:s", strtotime('-20 minutes'));
       $ocf = $this->_orderCollectionFactory->create();
       $ocf->addAttributeToSelect( 'entity_id');
       $ocf->addAttributeToSelect('increment_id');
@@ -285,7 +286,10 @@ class PaymentUtil extends AbstractHelper
       $ocf->setOrder(
         'increment_id',
         'desc'
-      );   
+      );
+      $number_of_orders = $ocf->getSize();
+      $this->_logger->info(__METHOD__ .' Number of orders:'.$number_of_orders);
+      echo "Payflex: Checking ".$number_of_orders." order(s)".PHP_EOL;
       $orderIds = $ocf->getData(); 
       $this->_logger->info( 'Orders from storeID : '.$storeId .' for cron: ' . json_encode( $orderIds ) );
       foreach ( $orderIds as $orderId ) {   
@@ -298,6 +302,7 @@ class PaymentUtil extends AbstractHelper
               $payflexOrderId = $requestToken->getpayflexId();
               $this->_logger->info(__METHOD__.'payflexOrderId : '.$payflexOrderId);
               $payflexApiResponse = $this->_communicationHelper->getTransactionStatus($payflexOrderId,$storeId);
+              echo "Payflex: API Response for Order ID: ".$orderIncrementId." ".$payflexApiResponse["orderStatus"].PHP_EOL;
               if (!$payflexApiResponse) {
                 throw new \Magento\Framework\Exception\NotFoundException(__('Transaction status checking response format is incorrect.'));
               }
@@ -324,7 +329,28 @@ class PaymentUtil extends AbstractHelper
                       }
                   }
                 }
-                elseif (isset($payflexApiResponse["orderStatus"]) && in_array($payflexApiResponse['orderStatus'],["Declined","Abandoned"])) {
+                elseif (isset($payflexApiResponse["orderStatus"]) && in_array($payflexApiResponse['orderStatus'],["Declined","Abandoned"]))
+                {
+                  echo "Payflex: Order ID: ".$orderIncrementId." ".$payflexApiResponse['orderStatus'].PHP_EOL;
+                  $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+                  $order = $objectManager->get( '\Magento\Sales\Model\Order' )->loadByIncrementId( $orderIncrementId );
+
+                  $order_processing_status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
+
+                  if($order->getStatus() != $order_processing_status)
+                  {
+                      echo "Payflex: Updating Order ID: ".$orderIncrementId." to ".Order::STATE_CANCELED.PHP_EOL;
+                      if($order->canCancel()) {
+                          $order->setEmailSent(0);
+                          $order->setState(Order::STATE_CANCELED)
+                            ->setStatus(Order::STATE_CANCELED);
+
+                          $order->addStatusHistoryComment('PayFlex CRON: Transaction '.strtolower($payflexApiResponse['orderStatus']).' from Payflex window, Order ID:'. $payflexOrderId)->save();
+                          $order->cancel();
+                          $order->save();
+                      }
+                  }
+
                   $this->_logger->info(__METHOD__ . " The PayFlex order status for orderIncrementId " . $orderIncrementId . " is Declined or Abandoned.");
 
                 } elseif (isset($payflexApiResponse["orderStatus"]) && $payflexApiResponse['orderStatus'] == "Created"){
