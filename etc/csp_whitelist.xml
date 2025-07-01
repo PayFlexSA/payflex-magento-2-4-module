@@ -12,5 +12,10 @@
                 <value id="js-partpayassets" type="host">https://partpayassets.blob.core.windows.net</value>
             </values>
         </policy>
+        <policy id="style-src">
+            <values>
+                <value id="style-payflex" type="host">https://widgets.payflex.co.za</value>
+            </values>
+        </policy>
     </policies>
 </csp_whitelist>

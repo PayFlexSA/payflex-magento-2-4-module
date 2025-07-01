@@ -13,19 +13,19 @@
                     <tbody>
                         <tr>
                             <th>Return to payflex settings</th>
-                            <td><a href="<?php echo $this->getUrl('adminhtml/system_config/edit/section/payflex'); ?>">Payflex Settings</a></td>
+                            <td><a href="<?=$this->getUrl('adminhtml/system_config/edit/section/payment/key/'); ?>#payment_other_payflex_gateway-link">Payflex Settings</a></td>
                         </tr>
                         <tr>
                             <th>Magento version</th>
-                            <td><?php echo $support->getMagentoVersion(); ?></td>
+                            <td><?=$support->getMagentoVersion(); ?></td>
                         </tr>
                         <tr>
                             <th>Payflex Module version</th>
-                            <td><?php echo $support->getModuleVersion(); ?></td>
+                            <td><?=$support->getModuleVersion(); ?></td>
                         </tr>
                         <tr>
                             <th>PHP Version</th>
-                            <td><?php echo $support->getPHPVersion(); ?></td>
+                            <td><?=$support->getPHPVersion(); ?></td>
                         </tr>
                         <tr>
                             <th>Payflex API Status</th>
@@ -40,7 +40,7 @@
                         <tr>
                             <th>Payflex API Config</th>
                             <td>
-                                <?php echo $support->getFormattedPayflexEnvironment(); ?>
+                                <?=$support->getFormattedPayflexEnvironment(); ?>
                             </td>
                         </tr>
                         <tr>

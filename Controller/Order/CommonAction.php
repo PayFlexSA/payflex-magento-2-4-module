@@ -202,6 +202,10 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
 
         return $this->_updateSuccessOrder($orderInfo, $response);
     }
+    /**
+     * This function updates the order with the successful payment response.
+     * This is similar to the CRON function, but it is called directly after the payment is successful.
+     */
     private function _updateSuccessOrder($order , $response){
         $this->_logger->info(__METHOD__);
         $orderId =  $order->getId();

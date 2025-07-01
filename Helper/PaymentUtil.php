@@ -192,11 +192,11 @@ class PaymentUtil extends AbstractHelper
             {
                 if($merchantName AND $merchantName != 'your-merchant-name')
                 {
-                  return '<script async src="https://widgets.payflex.co.za/' . $merchantName . '/payflex-widget-2.0.0.js?type=calculator&min=' . $configurationModel->getMin() . '&max=' . $configurationModel->getMax() . '&amount=' . $totalAmount . '" type="application/javascript"></script>';
+                  return '<script async src="https://widgets.payflex.co.za/' . $merchantName . '/payflex-widget-2.0.1.js?type=calculator&min=' . $configurationModel->getMin() . '&max=' . $configurationModel->getMax() . '&amount=' . $totalAmount . '" type="application/javascript"></script>';
                 }
                 else
                 {
-                  return '<script async src="https://widgets.payflex.co.za/payflex-widget-2.0.0.js?type=calculator&min=' . $configurationModel->getMin() . '&max=' . $configurationModel->getMax() . '&amount=' . $totalAmount . '" type="application/javascript"></script>';
+                  return '<script async src="https://widgets.payflex.co.za/payflex-widget-2.0.1.js?type=calculator&min=' . $configurationModel->getMin() . '&max=' . $configurationModel->getMax() . '&amount=' . $totalAmount . '" type="application/javascript"></script>';
                 }
             }
             else{
@@ -263,10 +263,13 @@ class PaymentUtil extends AbstractHelper
             $this->_logger->error( $e->getMessage() );
         }
     }
+
+    /**
+     * This function is mainly run by the CRON job to check the status of orders that are pending payment.
+     */
     public function checkOrderStatus($storeId)
-    {  
+    {
       $pMethod = 'payflex_gateway';
-      echo "Payflex: CRON is running".PHP_EOL;
       $this->_logger->info(__METHOD__ .' for Store ID:'.$storeId);
       $orderFromDateTime = date("Y-m-d H:i:s", strtotime('-24 hours'));
       $orderToDateTime = date("Y-m-d H:i:s", strtotime('-30 minutes'));
@@ -289,7 +292,7 @@ class PaymentUtil extends AbstractHelper
       );
       $number_of_orders = $ocf->getSize();
       $this->_logger->info(__METHOD__ .' Number of orders:'.$number_of_orders);
-      echo "Payflex: Checking ".$number_of_orders." order(s)".PHP_EOL;
+      echo "Payflex: CRON: Checking ".$number_of_orders." order(s)".PHP_EOL;
       $orderIds = $ocf->getData(); 
       $this->_logger->info( 'Orders from storeID : '.$storeId .' for cron: ' . json_encode( $orderIds ) );
       foreach ( $orderIds as $orderId ) {   

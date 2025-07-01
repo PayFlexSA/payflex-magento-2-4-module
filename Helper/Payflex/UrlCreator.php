@@ -110,30 +110,40 @@ class UrlCreator
         $this->_logger->info(__METHOD__ . " orderIncrementId:{$orderIncrementId}");
 
         $customerInfo = $this->_loadCustomerInfo($quote);
+
+        $support = \Magento\Framework\App\ObjectManager::getInstance()->get('Payflex\Gateway\Helper\Support');
+        $magento_version = $support->getMagentoVersion();
+
+        $platform_info_string = 'Magento ' . $magento_version;
+
         //format order
         $param = array();
         $param['amount'] = $quote->getBaseGrandTotal();
 
         $param['consumer']['phoneNumber'] = $customerInfo->getPhoneNumber();
-        $param['consumer']['givenNames'] = $customerInfo->getFirstname();
-        $param['consumer']['surname'] = $customerInfo->getSurname();
-        $param['consumer']['email'] = $quote->getBillingAddress()->getEmail();
+        $param['consumer']['givenNames']  = $customerInfo->getFirstname();
+        $param['consumer']['surname']     = $customerInfo->getSurname();
+        $param['consumer']['email']       = $quote->getBillingAddress()->getEmail();
 
         $param['billing']['addressLine1'] = $customerInfo->getBillingStreet1();
         $param['billing']['addressLine2'] = $customerInfo->getBillingStreet2();
-        $param['billing']['suburb'] = '';
-        $param['billing']['city'] = $quote->getBillingAddress()->getCity();
-        $param['billing']['postcode'] = $quote->getBillingAddress()->getPostcode();
-        $param['billing']['state'] = $quote->getBillingAddress()->getRegion() ? $quote->getBillingAddress()->getRegion() : '';
-        $param['billing']['country'] = $quote->getBillingAddress()->getCountry();
+        $param['billing']['suburb']       = '';
+        $param['billing']['city']         = $quote->getBillingAddress()->getCity();
+        $param['billing']['postcode']     = $quote->getBillingAddress()->getPostcode();
+        $param['billing']['state']        = $quote->getBillingAddress()->getRegion() ? $quote->getBillingAddress()->getRegion() : '';
+        $param['billing']['country']      = $quote->getBillingAddress()->getCountry();
 
         $param['shipping']['addressLine1'] = $customerInfo->getShippingStreet1();
         $param['shipping']['addressLine2'] = $customerInfo->getShippingStreet2();
-        $param['shipping']['suburb'] = '';
-        $param['shipping']['city'] = $quote->getShippingAddress()->getCity();
-        $param['shipping']['postcode'] = $quote->getShippingAddress()->getPostcode();
-        $param['shipping']['state'] = $quote->getShippingAddress()->getRegion();
-        $param['shipping']['country'] = $quote->getShippingAddress()->getCountry();
+        $param['shipping']['suburb']       = '';
+        $param['shipping']['city']         = $quote->getShippingAddress()->getCity();
+        $param['shipping']['postcode']     = $quote->getShippingAddress()->getPostcode();
+        $param['shipping']['state']        = $quote->getShippingAddress()->getRegion();
+        $param['shipping']['country']      = $quote->getShippingAddress()->getCountry();
+
+        $param['merchantSystemInformation']['plugin_version']     = $support->getModuleVersion();
+        $param['merchantSystemInformation']['php_version']        = $support->getPHPVersion();
+        $param['merchantSystemInformation']['ecommerce_platform'] = $platform_info_string;
 
         $param['description'] = '';
 

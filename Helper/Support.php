@@ -122,6 +122,11 @@ class Support extends AbstractHelper
         return TRUE;
     }
 
+    /**
+     * This is currently only used to get the pending orders for the support page.
+     * It's not used for any other functionality.
+     * 
+     */
     public function getPendingOrders()
     {
         $pMethod = 'payflex_gateway';
