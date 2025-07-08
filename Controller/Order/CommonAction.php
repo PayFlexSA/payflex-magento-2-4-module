@@ -7,70 +7,95 @@ use Magento\Sales\Model\Order;
 abstract class CommonAction extends \Magento\Framework\App\Action\Action
 {
     /**
-     *
-     * @var \Magento\Checkout\Model\Session
+     * @var \Payflex\Gateway\Logger\PayflexLogger
      */
-    private $_checkoutSession;
+    private $_logger;
 
     /**
-     *
      * @var \Payflex\Gateway\Helper\Communication
      */
     private $_communication;
 
     /**
-     *
+     * @var \Magento\Store\Model\StoreManagerInterface
+     */
+    protected $_storeManager;
+
+    /**
+     * @var \Magento\Checkout\Model\Session
+     */
+    private $_checkoutSession;
+
+    /**
      * @var \Magento\Framework\Message\ManagerInterface
      */
     private $_messageManager;
 
     /**
-     *
-     * @var \Payflex\Gateway\Logger\PayflexLogger
+     * @var \Magento\Sales\Api\OrderManagementInterface
      */
-    private $_logger;
-    
     protected $orderManagement;
-    private $OrderSender;
-    private $_invoiceService;
-    private $invoiceSender;
-    
 
     /**
-     * @var  \Magento\Sales\Model\Order $_order
+     * @var \Magento\Sales\Model\Order\Email\Sender\OrderSender
      */
-    protected $_order;
+    private $orderSender;
+
+    /**
+     * @var \Magento\Sales\Model\Service\InvoiceService
+     */
+    private $_invoiceService;
+
+    /**
+     * @var \Magento\Sales\Model\Order\Email\Sender\InvoiceSender
+     */
+    private $invoiceSender;
+
+    /**
+     * @var \Magento\Quote\Model\QuoteFactory
+     */
     protected $_quoteFactory;
-     /**
-     * @var Magento\Sales\Model\Order\Payment\Transaction\Builder $_transactionBuilder
+
+    /**
+     * @var \Magento\Sales\Model\Order\Payment\Transaction\Builder
      */
     protected $_transactionBuilder;
+
     /**
      * @var \Payflex\Gateway\Helper\Configuration
      */
     protected $_configHelper;
-    /**
-     * @var \Magento\Store\Model\StoreManagerInterface
-     */
-    protected $_storeManager;
 
+    /**
+     * @var \Payflex\Gateway\Helper\PaymentUtil
+     */
     private $paymentUtil;
 
+    /**
+     * @var \Magento\Sales\Model\Order
+     */
+    protected $_order;
+
+    /**
+     * CommonAction constructor.
+     *
+     * @param Context $context 
+     */
     public function __construct(Context $context)
     {
         parent::__construct($context);
-        $this->_logger = $this->_objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_communication = $this->_objectManager->get("\Payflex\Gateway\Helper\Communication");
-        $this->_storeManager =  $this->_objectManager->get("\Magento\Store\Model\StoreManagerInterface");
-        $this->_checkoutSession = $this->_objectManager->get("\Magento\Checkout\Model\Session");
-        $this->_messageManager = $this->_objectManager->get("\Magento\Framework\Message\ManagerInterface");
-        $this->orderManagement = $this->_objectManager->get("\Magento\Sales\Api\OrderManagementInterface");
-        $this->OrderSender  =  $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\OrderSender");
-        $this->_invoiceService =  $this->_objectManager->get("\Magento\Sales\Model\Service\InvoiceService");
-        $this->_quoteFactory =  $this->_objectManager->get("\Magento\Quote\Model\QuoteFactory");
+        $this->_logger             = $this->_objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
+        $this->_communication      = $this->_objectManager->get("\Payflex\Gateway\Helper\Communication");
+        $this->_storeManager       = $this->_objectManager->get("\Magento\Store\Model\StoreManagerInterface");
+        $this->_checkoutSession    = $this->_objectManager->get("\Magento\Checkout\Model\Session");
+        $this->_messageManager     = $this->_objectManager->get("\Magento\Framework\Message\ManagerInterface");
+        $this->orderManagement     = $this->_objectManager->get("\Magento\Sales\Api\OrderManagementInterface");
+        $this->orderSender         = $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\OrderSender");
+        $this->_invoiceService     = $this->_objectManager->get("\Magento\Sales\Model\Service\InvoiceService");
+        $this->_quoteFactory       = $this->_objectManager->get("\Magento\Quote\Model\QuoteFactory");
         $this->_transactionBuilder = $this->_objectManager->get("\Magento\Sales\Model\Order\Payment\Transaction\Builder");
-        $this->_configHelper = $this->_objectManager->get("\Payflex\Gateway\Helper\Configuration");
-        $this->invoiceSender = $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\InvoiceSender");
+        $this->_configHelper       = $this->_objectManager->get("\Payflex\Gateway\Helper\Configuration");
+        $this->invoiceSender       = $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\InvoiceSender");
 
         $this->paymentUtil = $this->_objectManager->get("\Payflex\Gateway\Helper\PaymentUtil");
 
@@ -185,15 +210,15 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
                 if($orderInfo->canCancel())
                 {
                     $orderInfo->setEmailSent(0);
-                    $orderInfo->setState(Order::STATE_CANCELED)
-                    ->setStatus(Order::STATE_CANCELED);
+                    $orderInfo->setState(Order::STATE_CANCELED)->setStatus(Order::STATE_CANCELED);
+
                     $this->orderManagement->cancel($orderInfo->getId());
                     $orderInfo->addStatusHistoryComment('Payflex: Order has been cancelled. Order ID: '.$orderIncrementId);
                     $orderInfo->cancel();
                     $orderInfo->save();
 
                     $payment = $orderInfo->getPayment();
-                    $this->_savePaymentInfoForFailedPayment($payment);
+                    $this->savePaymentInfoForFailedPayment($payment);
                     $error = "Transaction has been cancelled or declined Order ID: ".$orderIncrementId;
                     $this->_logger->info($error);
                     $this->_checkoutSession->restoreQuote();
@@ -252,7 +277,7 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
         throw new \Magento\Framework\Exception\PaymentException(__('Payment failed. Order was not placed.'));
     }
 
-    public function _savePaymentInfoForSuccessfulPayment($payment, $response)
+    public function savePaymentInfoForSuccessfulPayment($payment, $response)
     {
         $this->_logger->info(__METHOD__);
         $info = $payment->getAdditionalInformation();
@@ -268,7 +293,7 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
         $payment->save();
     }
 
-    private function _savePaymentInfoForFailedPayment($payment)
+    public function savePaymentInfoForFailedPayment($payment)
     {
         $this->_logger->info(__METHOD__);
         $info = $payment->getAdditionalInformation();

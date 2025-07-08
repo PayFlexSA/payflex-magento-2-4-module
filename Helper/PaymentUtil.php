@@ -1,85 +1,100 @@
 <?php
 namespace Payflex\Gateway\Helper;
 
+use Magento\Store\Model\StoreManagerInterface as StoreManager;
+use Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
+use Magento\Framework\App\ObjectManager as ObjectManager;
 use Magento\Framework\App\Helper\AbstractHelper;
 use Magento\Framework\App\Helper\Context;
 use Magento\Sales\Model\Order;
+
 
 class PaymentUtil extends AbstractHelper
 {
     
     /**
-    *
-    * @var \Magento\Framework\App\ObjectManager
-    */
+     * @var \Magento\Framework\App\ObjectManager
+     */
     private $_objectManager;
-    
+
     /**
-    * Asset service
-    *
-    * @var \Magento\Framework\View\Asset\Repository
-    */
-    private $_assetRepo;
-    
-    /**
-    * @var \Payflex\Gateway\Helper\Communication
-    */
+     * @var \Payflex\Gateway\Helper\Communication
+     */
     protected $_communicationHelper;
-    
+
     /**
-    * @var \Magento\Store\Model\StoreManagerInterface
-    */
-    protected $_storeManager;
-    
+     * @var \Magento\Store\Model\StoreManagerInterface
+     */
+    protected $storeManager;
+
     /**
-    * @var \Magento\Sales\Model\Order\Email\Sender\InvoiceSender
-    */
+     * @var \Magento\Sales\Model\Order\Email\Sender\InvoiceSender
+     */
     public $invoiceSender;
-    
-    
+
     /**
-    * @var \Payflex\Gateway\Helper\Configuration
-    */
+     * @var \Payflex\Gateway\Helper\Configuration
+     */
     protected $_configHelper;
-    
+
+    /**
+     * @var \Magento\Sales\Model\ResourceModel\Order\CollectionFactory
+     */
     protected $_orderCollectionFactory;
+
+    /**
+     * @var \Magento\Quote\Model\QuoteFactory
+     */
     protected $_quoteFactory;
+
     /**
-    * @var \Magento\Sales\Api\OrderRepositoryInterface
-    */
+     * @var \Magento\Sales\Api\OrderRepositoryInterface
+     */
     protected $orderRepository;
+
+    /**
+     * @var \Magento\Sales\Model\Order\Email\Sender\OrderSender
+     */
     private $OrderSender;
+
+    /**
+     * @var \Magento\Sales\Model\Service\InvoiceService
+     */
     private $_invoiceService;
+
     /**
-    * @var Magento\Sales\Model\Order\Payment\Transaction\Builder $_transactionBuilder
-    */
-    
-    protected $_transactionBuilder;
+     * @var \Magento\Sales\Api\OrderManagementInterface
+     */
+    public $orderManagement;
+
     /**
-    * @var \Payflex\Gateway\Logger\PayflexLogger
+    * @var Magento\Sales\Model\Order\Payment\Transaction\Builder $transactionBuilder
     */
+    private $transactionBuilder;
+
+    /**
+     * @var \Payflex\Gateway\Logger\PayflexLogger
+     */
     protected $_logger;
     
-    public function __construct(
-    Context $context,
-    \Magento\Store\Model\StoreManagerInterface $storeManager,
-    \Magento\Sales\Model\ResourceModel\Order\CollectionFactory $orderCollectionFactory
-    )
+    public function __construct( Context $context )
     {
-        $this->_orderCollectionFactory = $orderCollectionFactory;
         parent::__construct($context);
-        $this->_objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_logger = $this->_objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_assetRepo = $this->_objectManager->get("\Magento\Framework\View\Asset\Repository");
-        $this->_communicationHelper = $this->_objectManager->get("\Payflex\Gateway\Helper\Communication");
-        $this->_configHelper = $this->_objectManager->get("\Payflex\Gateway\Helper\Configuration");
-        $this->_storeManager = $storeManager;
-        $this->_quoteFactory =  $this->_objectManager->get("\Magento\Quote\Model\QuoteFactory");
-        $this->orderRepository = $this->_objectManager->get("\Magento\Sales\Api\OrderRepositoryInterface");
-        $this->OrderSender  =  $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\OrderSender");
-        $this->_invoiceService =  $this->_objectManager->get("\Magento\Sales\Model\Service\InvoiceService");
-        $this->invoiceSender = $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\InvoiceSender");
-        $this->_transactionBuilder = $this->_objectManager->get("\Magento\Sales\Model\Order\Payment\Transaction\Builder");
+        
+        $this->_objectManager          = ObjectManager::getInstance();
+        $this->storeManager            = $this->_objectManager->get("Magento\Store\Model\StoreManagerInterface");
+        $this->_orderCollectionFactory = $this->_objectManager->get("Magento\Sales\Model\ResourceModel\Order\CollectionFactory");
+        $this->_logger                 = $this->_objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
+        $this->_communicationHelper    = $this->_objectManager->get("\Payflex\Gateway\Helper\Communication");
+        $this->_configHelper           = $this->_objectManager->get("\Payflex\Gateway\Helper\Configuration");
+        $this->orderManagement         = $this->_objectManager->get("\Magento\Sales\Api\OrderManagementInterface");
+        $this->_quoteFactory           = $this->_objectManager->get("\Magento\Quote\Model\QuoteFactory");
+        $this->orderRepository         = $this->_objectManager->get("\Magento\Sales\Api\OrderRepositoryInterface");
+        $this->OrderSender             = $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\OrderSender");
+        $this->_invoiceService         = $this->_objectManager->get("\Magento\Sales\Model\Service\InvoiceService");
+        $this->invoiceSender           = $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\InvoiceSender");
+        $this->transactionBuilder      = $this->_objectManager->get("\Magento\Sales\Model\Order\Payment\Transaction\Builder");
+
         $this->_logger->info(__METHOD__);
     }
     
@@ -87,7 +102,7 @@ class PaymentUtil extends AbstractHelper
     {
         $this->_logger->info(__METHOD__);
         $urlManager = $this->_objectManager->get('\Magento\Framework\Url');
-        $url = $urlManager->getUrl('payflex/order/redirect', ['_secure' => true]);
+        $url        = $urlManager->getUrl('payflex/order/redirect', ['_secure' => true]);
         
         $this->_logger->info(__METHOD__ . " url: {$url} ");
         return $url;
@@ -176,7 +191,7 @@ class PaymentUtil extends AbstractHelper
         
         if (!$this->_configHelper->getEnabled()) return false;
         
-        $storeId                      = $this->_storeManager->getStore()->getId();
+        $storeId                      = $this->storeManager->getStore()->getId();
         $merchantConfigurationManager = $this->_objectManager->create("\Payflex\Gateway\Model\Configuration");
         $configurationModel           = $merchantConfigurationManager->load($storeId, "store_id");
         
@@ -223,15 +238,16 @@ class PaymentUtil extends AbstractHelper
             return $merchantConfigurationModel;
         }
         
-        /**
-        * This function is mainly run by the CRON job to check the status of orders that are pending payment.
-        */
+    /**
+    * This function is mainly run by the CRON job to check the status of orders that are pending payment.
+    */
     public function checkOrderStatus($storeId)
     {
         $pMethod = 'payflex_gateway';
+
         $this->_logger->info(__METHOD__ .' for Store ID:'.$storeId);
         $orderFromDateTime = date("Y-m-d H:i:s", strtotime('-24 hours'));
-        $orderToDateTime = date("Y-m-d H:i:s", strtotime('-10 minutes'));
+        $orderToDateTime   = date("Y-m-d H:i:s", strtotime('-2 minutes'));
         $ocf = $this->_orderCollectionFactory->create();
         $ocf->addAttributeToSelect( 'entity_id');
         $ocf->addAttributeToSelect('increment_id');
@@ -251,10 +267,12 @@ class PaymentUtil extends AbstractHelper
         );
         $number_of_orders = $ocf->getSize();
         $this->_logger->info(__METHOD__ .' Number of orders:'.$number_of_orders);
+
         echo "Payflex: CRON: Checking ".$number_of_orders." order(s)".PHP_EOL;
+
         $orderIds = $ocf->getData(); 
         $this->_logger->info( 'Orders from storeID : '.$storeId .' for cron: ' . json_encode( $orderIds ) );
-        foreach ( $orderIds as $orderId ) {   
+        foreach ( $orderIds as $orderId ) {
             $orderIncrementId = $orderId['increment_id'];  
             $storeId = $orderId['store_id'];  
             $requestTokenManager = $this->_objectManager->create("\Payflex\Gateway\Model\RequestToken");
@@ -279,8 +297,6 @@ class PaymentUtil extends AbstractHelper
                         $order->addStatusHistoryComment( __( 'PayFlex CRON: Payment was successful for order ID: '. $payflexOrderId ) )->setIsCustomerNotified( true )->save();
                         //   try {
 
-                        // Get common action class for order processing
-                        // $commonAction = $this->_objectManager->create("\Payflex\Gateway\Controller\Order\CommonAction");
                         $orderId      = $order->getId();
                         $quoteId      = $order->getQuoteId();
                         $quote        = $this->loadQuote($quoteId);
@@ -293,9 +309,9 @@ class PaymentUtil extends AbstractHelper
                         
                         if ($order->canInvoice() && !$order->hasInvoices())
                         {
+                            $this->_logger->info(__METHOD__.'Generating Invoice for Order ID: '.$orderIncrementId);
+                            $this->generateInvoice( $order );
                         }
-                        $this->_logger->info(__METHOD__.'Generating Invoice for Order ID: '.$orderIncrementId);
-                        $this->generateInvoice( $order );
                         
                     }
                 }
@@ -305,16 +321,16 @@ class PaymentUtil extends AbstractHelper
                     $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
                     $order = $objectManager->get( '\Magento\Sales\Model\Order' )->loadByIncrementId( $orderIncrementId );
                     
-                    $order_processing_status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
+                    $order_processing_status = $this->_configHelper->getPayflexNewOrderStatus($this->storeManager->getStore()->getId());
                     
                     if($order->getStatus() != $order_processing_status)
                     {
                         echo "Payflex: Updating Order ID: ".$orderIncrementId." to ".Order::STATE_CANCELED.PHP_EOL;
                         if($order->canCancel()) {
                             $order->setEmailSent(0);
-                            $order->setState(Order::STATE_CANCELED)
-                            ->setStatus(Order::STATE_CANCELED);
-                            
+                            $order->setState(Order::STATE_CANCELED)->setStatus(Order::STATE_CANCELED);
+                            $this->orderManagement->cancel($order->getId());
+
                             $order->addStatusHistoryComment('PayFlex CRON: Transaction '.strtolower($payflexApiResponse['orderStatus']).' from Payflex window, Order ID:'. $payflexOrderId)->save();
                             $order->cancel();
                             $order->save();
@@ -329,93 +345,21 @@ class PaymentUtil extends AbstractHelper
                 }
                 
             }else{
-                $this->_logger->info(__METHOD__ ."Order is not exist in RequestToken Model" );
+                $this->_logger->info(__METHOD__ ."Order does not exist in RequestToken Model" );
                 throw new \Magento\Framework\Exception\LocalizedException(__('The order no longer exists.'));
             }
         }
         
-        $payflexDetailedEmailDebugging = 0; // 0 = off, 1 = on. If on, make sure to define your to addresss
-        if ($payflexDetailedEmailDebugging == 1){
-            
-            //Send email with order variables.
-            date_default_timezone_set("Africa/Johannesburg");
-            $datetimeofmail = date("Y-m-d H:i:s");
-            $to = "PayFlex Tester <youraddress@yourdomain.tld>";
-            $subject = $datetimeofmail . " Order loop " ;
-            
-            //Message body start
-            $message = "Quote ID: ";
-            if (isset($quoteReservedOrderId)){
-                $message .= "\nReserved Order ID: " . $quoteReservedOrderId . ".";
-            } else {
-                $message .= "\nNo Reserved Order ID to display.";
-            }
-            //$message .= ". \nMagento Status: " . $orderStatus;
-            if (isset($quoteDateTimeCreated)){
-                $message .= "\nQuote DateTime Created: " . $quoteDateTimeCreated . ".";
-            } else {
-                $message .= "\nNo Quote DateTime to display.";
-            }
-            if (isset($quotePaymentMethodTitle)){
-                $message .= "\nPayment Method Title: " . $quotePaymentMethodTitle . ".";
-            } else {
-                $message .= "\nNo Payment Method Title to display.";
-            }
-            if (isset($quotePaymentMethodCode)){
-                $message .= "\nPayment Method Code: " . $quotePaymentMethodCode . ".";
-            } else {
-                $message .= "\nNo Payment Method Code to display.";
-            }
-            if (isset($payflexOrderId)){
-                $message .= "\nPayFlex ID: " . $payflexOrderId . ".";
-            } else {
-                $message .= "\nNo PayFlex ID to display.";
-            }
-            if (isset($payflexOrderStatus)){
-                $message .= "\nCurrent PayFlex Payment Status: " . $payflexOrderStatus . ".";
-            } else {
-                $message .= "\nNo Current PayFlex Payment Status to display.";
-            }
-            if (isset($payflexApiResponseStatus)){
-                $message .= "\nPayFlex API Payment Status: " . $payflexApiResponseStatus . ".";
-            } else {
-                $message .= "\nNo PayFlex API Payment Status to display.";
-            }
-            $message .= "\n=========\n";
-            if (isset($quotePaymentAdditionalInfo)){
-                $message .= "\nDump of additional info:\n" . var_export($quotePaymentAdditionalInfo, true);
-            } else {
-                $message .= "\nNo additional info to display.";
-            }
-            $message .= "\n=========\n";
-            if (isset($payflexApiResponse)){
-                $message .= "\nResponse from PayFlex API: \n" . var_export($payflexApiResponse, true);
-            } else {
-                $message .= "\nNo response from the PayFlex API to display.";
-            }
-            $message .= "\n=========\n";
-            //Message body end
-            
-            $headers = array(
-                "From" => "PayFlex Debugger <payflex@yourtestdomain.tld>",
-                "Reply-To" => "PayFlex Debugger <payflex@yourtestdomain.tld>",
-                "X-Mailer" => "PHP/" . phpversion()
-            );
-            mail($to, $subject, $message, $headers);
-            $this->_logger->info(__METHOD__ . " Order loop  was processed and email was sent.");
-            sleep(1);
-        }
-        //return $collection;
         $this->_logger->info(__METHOD__ . " PayFlex order status cron has executed for store ID " . $storeId . ".");
     }
         
     public function generateInvoice( $order )
     {
-        $storeId = $this->_storeManager->getStore()->getId();
+        $storeId = $this->storeManager->getStore()->getId();
         $order_successful_email = $this->_configHelper->getOrderEmail($storeId);
         
-        $state  = $this->_configHelper->getPayflexNewOrderState($this->_storeManager->getStore()->getId());
-        $status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
+        $state  = $this->_configHelper->getPayflexNewOrderState($this->storeManager->getStore()->getId());
+        $status = $this->_configHelper->getPayflexNewOrderStatus($this->storeManager->getStore()->getId());
         
         
         if ( $order_successful_email != '0' ) {
@@ -475,7 +419,7 @@ class PaymentUtil extends AbstractHelper
             
             $message = __( 'The authorized amount is %1.', $formatedPrice );
             // Get the object of builder class
-            $trans       = $this->_transactionBuilder;
+            $trans       = $this->transactionBuilder;
             
             $transaction = $trans->setPayment( $payment )
             ->setOrder( $order )
@@ -507,7 +451,6 @@ class PaymentUtil extends AbstractHelper
         if (!$quote->getId()) {
             $error = "Failed to load quote : {$quoteId}";
             $this->_logger->critical($error);
-            // $this->_redirectToCartPageWithError($error);
             return null;
         }
         return $quote;
