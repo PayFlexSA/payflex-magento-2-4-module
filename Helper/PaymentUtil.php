@@ -247,7 +247,7 @@ class PaymentUtil extends AbstractHelper
 
         $this->_logger->info(__METHOD__ .' for Store ID:'.$storeId);
         $orderFromDateTime = date("Y-m-d H:i:s", strtotime('-24 hours'));
-        $orderToDateTime   = date("Y-m-d H:i:s", strtotime('-2 minutes'));
+        $orderToDateTime   = date("Y-m-d H:i:s", strtotime('-30 minutes'));
         $ocf = $this->_orderCollectionFactory->create();
         $ocf->addAttributeToSelect( 'entity_id');
         $ocf->addAttributeToSelect('increment_id');
