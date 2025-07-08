@@ -14,10 +14,31 @@ The Payflex Magento 2.4 Gateway plugin integrates Payflex with your Magento stor
 
 Follow these steps to install the Payflex Gateway plugin:
 
-### 1. Copy Plugin to Directory
+### 1a. Copy Plugin to Directory (Manual)
 
 - Paste the plugin into the appropriate directory: `/app/code/` for a release, or `/app/code/Payflex/Gateway` if you're using the repo directly
 - This README.md should be located here if done correctly: `/app/code/Payflex/Gateway/README.md`
+
+### 1b. Copy Plugin to Directory (Composer)
+
+Add the following to your `composer.json`:
+
+```json
+{
+   "repositories": [
+      {
+         "type": "vcs",
+         "url": "https://github.com/PayFlexSA/payflex-magento-2-4-module"
+      }
+   ]
+}
+```
+
+Then run:
+
+```bash
+composer require payflex/magento2-gateway
+```
 
 ### 2. Run Magento Setup Commands
 

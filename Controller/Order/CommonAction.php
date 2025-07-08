@@ -54,6 +54,8 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
      */
     protected $_storeManager;
 
+    private $paymentUtil;
+
     public function __construct(Context $context)
     {
         parent::__construct($context);
@@ -69,6 +71,8 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
         $this->_transactionBuilder = $this->_objectManager->get("\Magento\Sales\Model\Order\Payment\Transaction\Builder");
         $this->_configHelper = $this->_objectManager->get("\Payflex\Gateway\Helper\Configuration");
         $this->invoiceSender = $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\InvoiceSender");
+
+        $this->paymentUtil = $this->_objectManager->get("\Payflex\Gateway\Helper\PaymentUtil");
 
         $this->_logger->info(__METHOD__);
     }
@@ -212,18 +216,23 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
         $quoteId = $order->getQuoteId();
         $this->_logger->critical('orderId='.$orderId);
         if (isset($response['orderStatus']) && $response['orderStatus'] == 'Approved' && $response['merchantReference'] == $order->getIncrementId()) {
-            $quote = $this->_loadQuote($quoteId);
+            $quote = $this->paymentUtil->loadQuote($quoteId);
+            if(!$quote)
+            {
+                $this->_redirectToCartPageWithError("Failed to load quote. Please try again.");
+                return;
+            }
             $payment = $quote->getPayment();
 
             $this->_logger->info(__METHOD__.' orderStatus : '.$response['orderStatus']);
 
             try {
 
-                $this->createTransaction( $order, $response );
+                $this->paymentUtil->createTransaction( $order, $response );
                 if ($order->canInvoice() && !$order->hasInvoices()) {
 
                     // Order is pending payment at this point.
-                    $this->generateInvoice( $order );
+                    $this->paymentUtil->generateInvoice( $order );
 
                 }
               } catch ( \Exception $ex ) {
@@ -242,111 +251,8 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
         }
         throw new \Magento\Framework\Exception\PaymentException(__('Payment failed. Order was not placed.'));
     }
-    public function generateInvoice( $order )
-    {
-        $storeId = $this->_storeManager->getStore()->getId();
-        $order_successful_email = $this->_configHelper->getOrderEmail($storeId);
-        
-        $state  = $this->_configHelper->getPayflexNewOrderState($this->_storeManager->getStore()->getId());
-        $status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
 
-
-        if ( $order_successful_email != '0' ) {
-            $this->OrderSender->send( $order );
-            $this->_logger->info('CommonAction:'.__METHOD__.'Order Success Email Sent');
-            $order->addStatusHistoryComment( __( 'Notified customer about order #%1.', $order->getId() ) )->setIsCustomerNotified( true )->save();
-        }
-        // Capture invoice when payment is successfull
-        $invoice = $this->_invoiceService->prepareInvoice( $order );
-
-        $invoice->setRequestedCaptureCase( \Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE );
-        $invoice->register();
-        $this->_logger->info('CommonAction:'.__METHOD__.'invoice registred');
-        // Save the invoice to the order
-
-
-        // Set order status to custom status
-        $invoice_order = $invoice->getOrder();
-        
-        $invoice_order->setStatus( $status );
-        $invoice_order->setState( $state );
-        $invoice_order->addStatusHistoryComment('Payment confirmed, Payflex Transaction ID: '.$invoice->getTransactionId(), $invoice_order->getStatus());
-        $invoice_order->save();
-        
-        $transaction = $this->_objectManager->create( 'Magento\Framework\DB\Transaction' )
-            ->addObject( $invoice )
-            ->addObject( $invoice_order );
-
-        // Payment confirmed. 
-        $transaction->save();
-
-        $this->_logger->info('Transaction Saved');
-        // Magento\Sales\Model\Order\Email\Sender\InvoiceSender
-        $send_invoice_email = $this->_configHelper->getInvoiceEmail($storeId);
-        if ( $send_invoice_email != '0' ) {
-            $this->invoiceSender->send( $invoice );
-            $this->_logger->info(__METHOD__.'Invoice Email Sent');
-            $order->addStatusHistoryComment( __( 'Notified customer about invoice #%1.', $invoice->getId() ) )->setIsCustomerNotified( true )->save();
-        }
-    }
-    private function createTransaction( $order = null, $paymentData = array() )
-    {
-        $this->_logger->info(__METHOD__ );
-        try {
-            if ( $paymentData['orderStatus'] != 'Approved' && $paymentData['merchantReference'] != $order->getIncrementId()) {
-                $this->_logger->info(__METHOD__.': Order Mismatched');
-                return false;
-            }
-            // Get payment object from order object
-            $payment = $order->getPayment();
-            $payment->setLastTransId( $paymentData['orderId'] )
-                ->setTransactionId( $paymentData['orderId'] ) ;
-                // ->setAdditionalInformation($paymentData)  ;
-            $formatedPrice = $order->getBaseCurrency()->formatTxt(
-                $order->getGrandTotal()
-            );
-
-            $message = __( 'The authorized amount is %1.', $formatedPrice );
-            // Get the object of builder class
-            $trans       = $this->_transactionBuilder;
-
-            $transaction = $trans->setPayment( $payment )
-                ->setOrder( $order )
-                ->setTransactionId( $paymentData['orderId'] )
-                ->setAdditionalInformation($paymentData)
-                ->setFailSafe( true )
-            // Build method creates the transaction and returns the object
-                ->build( \Magento\Sales\Model\Order\Payment\Transaction::TYPE_CAPTURE );
-
-            $payment->addTransactionCommentsToOrder(
-                $transaction,
-                $message
-            );
-            $payment->setParentTransactionId( null );
-            $payment->save();
-
-            return $transaction->save()->getTransactionId();
-        } catch ( \Exception $e ) {
-
-            $this->_logger->error( $e->getMessage() );
-        }
-    }
-
-    private function _loadQuote($quoteId)
-    {
-        $this->_logger->info(__METHOD__ . " QuoteId:{$quoteId}");
-
-        $quote = $this->_quoteFactory->create()->loadByIdWithoutStore($quoteId);
-        if (!$quote->getId()) {
-            $error = "Failed to load quote : {$quoteId}";
-            $this->_logger->critical($error);
-            $this->_redirectToCartPageWithError($error);
-            return null;
-        }
-        return $quote;
-    }
-
-    private function _savePaymentInfoForSuccessfulPayment($payment, $response)
+    public function _savePaymentInfoForSuccessfulPayment($payment, $response)
     {
         $this->_logger->info(__METHOD__);
         $info = $payment->getAdditionalInformation();

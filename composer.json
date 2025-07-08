@@ -1,8 +1,8 @@
 {
-    "name": "payflex/gateway",
+    "name": "payflex/magento2-gateway",
     "description": "Payflex Gateway",
     "require": {
-      "php": "~7.3|~7.4|~8.0.0",
+      "php": ">=7.4",
       "magento/module-store": "*",
       "magento/module-theme": "*",
       "magento/module-widget": "*",
@@ -28,5 +28,13 @@
                 "Payflex/Gateway"
             ]
         ]
+    },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "Payflex\\Gateway\\": ""
+        }
     }
 }

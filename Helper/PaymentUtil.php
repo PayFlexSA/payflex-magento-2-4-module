@@ -34,7 +34,7 @@ class PaymentUtil extends AbstractHelper
     /**
      * @var \Magento\Sales\Model\Order\Email\Sender\InvoiceSender
      */
-    private $invoiceSender;
+    public $invoiceSender;
 
 
     /**
@@ -43,7 +43,7 @@ class PaymentUtil extends AbstractHelper
     protected $_configHelper;
 
     protected $_orderCollectionFactory;
-
+    protected $_quoteFactory;
     /**
      * @var \Magento\Sales\Api\OrderRepositoryInterface
      */
@@ -74,9 +74,11 @@ class PaymentUtil extends AbstractHelper
         $this->_communicationHelper = $this->_objectManager->get("\Payflex\Gateway\Helper\Communication");
         $this->_configHelper = $this->_objectManager->get("\Payflex\Gateway\Helper\Configuration");
         $this->_storeManager = $storeManager;
+        $this->_quoteFactory =  $this->_objectManager->get("\Magento\Quote\Model\QuoteFactory");
         $this->orderRepository = $this->_objectManager->get("\Magento\Sales\Api\OrderRepositoryInterface");
         $this->OrderSender  =  $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\OrderSender");
         $this->_invoiceService =  $this->_objectManager->get("\Magento\Sales\Model\Service\InvoiceService");
+        $this->invoiceSender = $this->_objectManager->get("\Magento\Sales\Model\Order\Email\Sender\InvoiceSender");
         $this->_transactionBuilder = $this->_objectManager->get("\Magento\Sales\Model\Order\Payment\Transaction\Builder");
         $this->_logger->info(__METHOD__);
     }
@@ -220,49 +222,6 @@ class PaymentUtil extends AbstractHelper
         $merchantConfigurationModel->save();
         return $merchantConfigurationModel;
     }
-    public function createTransaction( $order = null, $paymentData = array() )
-    {
-      $this->_logger->info(__METHOD__);
-        try {
-            if ( $paymentData['orderStatus'] != 'Approved' && $paymentData['merchantReference'] != $order->getIncrementId()) {
-                $this->_logger->info(__METHOD__.': Order Mismatched in cron');  
-                return false;
-            }
-            // Get payment object from order object
-            $payment = $order->getPayment();
-            $this->_logger->info(__METHOD__.' Get payment');
-            $payment->setLastTransId( $paymentData['orderId'] )
-                ->setTransactionId( $paymentData['orderId'] ) ;
-               // ->setAdditionalInformation($paymentData)  ;
-            $formatedPrice = $order->getBaseCurrency()->formatTxt(
-                $order->getGrandTotal()
-            );
-
-            $message = __( 'Cron : The authorized amount is %1.', $formatedPrice );
-            // Get the object of builder class
-            $trans       = $this->_transactionBuilder;
-            $transaction = $trans->setPayment( $payment )
-                ->setOrder( $order )
-                ->setTransactionId( $paymentData['orderId'] )
-                ->setAdditionalInformation($paymentData)
-                ->setFailSafe( true )
-            // Build method creates the transaction and returns the object
-                ->build( \Magento\Sales\Model\Order\Payment\Transaction::TYPE_CAPTURE );
-
-            $payment->addTransactionCommentsToOrder(
-                $transaction,
-                $message
-            );
-            $payment->setParentTransactionId( null );
-            $payment->save();
-            $order->save();
-
-            return $transaction->save()->getTransactionId();
-        } catch ( \Exception $e ) {
-
-            $this->_logger->error( $e->getMessage() );
-        }
-    }
 
     /**
      * This function is mainly run by the CRON job to check the status of orders that are pending payment.
@@ -272,7 +231,7 @@ class PaymentUtil extends AbstractHelper
       $pMethod = 'payflex_gateway';
       $this->_logger->info(__METHOD__ .' for Store ID:'.$storeId);
       $orderFromDateTime = date("Y-m-d H:i:s", strtotime('-24 hours'));
-      $orderToDateTime = date("Y-m-d H:i:s", strtotime('-30 minutes'));
+      $orderToDateTime = date("Y-m-d H:i:s", strtotime('-10 minutes'));
       $ocf = $this->_orderCollectionFactory->create();
       $ocf->addAttributeToSelect( 'entity_id');
       $ocf->addAttributeToSelect('increment_id');
@@ -317,19 +276,45 @@ class PaymentUtil extends AbstractHelper
 
                       $status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
                       $state  = $this->_configHelper->getPayflexNewOrderState($this->_storeManager->getStore()->getId());
-
-                      $order->setStatus( $status );
-                      $order->setState( $state );
-                      $order->save();
-                      $this->_logger->info(__METHOD__.'Order status set to Processing: '.$order->getId());
+                    echo "Payflex: Test 1".PHP_EOL;
+                    //   $order->setStatus( $status );
+                    //   $order->setState( $state );
+                    //   $order->save();
+                      $this->_logger->info(__METHOD__.'Order status set to Processing: '.$order->getIncrementId());
                       // Update order status message
                       $order->addStatusHistoryComment( __( 'PayFlex CRON: Payment was successful for order ID: '. $payflexOrderId ) )->setIsCustomerNotified( true )->save();
-                      try {
-                        $this->generateInvoice( $order );
+                    //   try {
+                        echo "Payflex: Test 2".PHP_EOL;
+                        // Get common action class for order processing
+                        // $commonAction = $this->_objectManager->create("\Payflex\Gateway\Controller\Order\CommonAction");
+                        echo "Payflex: CommonAction loaded".PHP_EOL;
+
+                        echo "Payflex: Test 3".PHP_EOL;
+                        $orderId      = $order->getId();
+                        echo "Payflex: Test 4".PHP_EOL;
+                        $quoteId      = $order->getQuoteId();
+                        echo "Payflex: Test 5".PHP_EOL;
+                        $quote        = $this->loadQuote($quoteId);
+                        echo "Payflex: Test 6".PHP_EOL;
+                        $payment      = $quote->getPayment();
+                        echo "Payflex: Test 7".PHP_EOL;
+
+
+                        // Get the order payment object
+                        $this->_logger->info(__METHOD__.'Generating Transaction for Order ID: '.$orderIncrementId);
                         $this->createTransaction( $order, $payflexApiResponse );
-                      } catch ( \Exception $ex ) {
-                          $this->_logger->error( $ex->getMessage() );
-                      }
+
+                        if ($order->canInvoice() && !$order->hasInvoices())
+                        {
+                        }
+                        $this->_logger->info(__METHOD__.'Generating Invoice for Order ID: '.$orderIncrementId);
+                        $this->generateInvoice( $order );
+
+                        // $this->generateInvoice( $order );
+                        // $this->createTransaction( $order, $payflexApiResponse );
+                    //   } catch ( \Exception $ex ) {
+                    //       $this->_logger->error( $ex->getMessage() );
+                    //   }
                   }
                 }
                 elseif (isset($payflexApiResponse["orderStatus"]) && in_array($payflexApiResponse['orderStatus'],["Declined","Abandoned"]))
@@ -444,28 +429,43 @@ class PaymentUtil extends AbstractHelper
 
     public function generateInvoice( $order )
     {
-        $this->_logger->info(__METHOD__);
         $storeId = $this->_storeManager->getStore()->getId();
         $order_successful_email = $this->_configHelper->getOrderEmail($storeId);
+        
+        $state  = $this->_configHelper->getPayflexNewOrderState($this->_storeManager->getStore()->getId());
+        $status = $this->_configHelper->getPayflexNewOrderStatus($this->_storeManager->getStore()->getId());
+
 
         if ( $order_successful_email != '0' ) {
             $this->OrderSender->send( $order );
-            $this->_logger->info(__METHOD__.'Order Success Email Sent');
+            $this->_logger->info('CommonAction:'.__METHOD__.'Order Success Email Sent');
             $order->addStatusHistoryComment( __( 'Notified customer about order #%1.', $order->getId() ) )->setIsCustomerNotified( true )->save();
         }
         // Capture invoice when payment is successfull
         $invoice = $this->_invoiceService->prepareInvoice( $order );
+
         $invoice->setRequestedCaptureCase( \Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE );
         $invoice->register();
-        $this->_logger->info(__METHOD__.'invoice registred');
+        $this->_logger->info('CommonAction:'.__METHOD__.'invoice registred');
         // Save the invoice to the order
+
+
+        // Set order status to custom status
+        $invoice_order = $invoice->getOrder();
+        
+        $invoice_order->setStatus( $status );
+        $invoice_order->setState( $state );
+        $invoice_order->addStatusHistoryComment('Payment confirmed, Payflex Transaction ID: '.$invoice->getTransactionId(), $invoice_order->getStatus());
+        $invoice_order->save();
+        
         $transaction = $this->_objectManager->create( 'Magento\Framework\DB\Transaction' )
             ->addObject( $invoice )
-            ->addObject( $invoice->getOrder() );
+            ->addObject( $invoice_order );
 
+        // Payment confirmed. 
         $transaction->save();
-        $this->_logger->info('Transaction Saved');
 
+        $this->_logger->info('Transaction Saved');
         // Magento\Sales\Model\Order\Email\Sender\InvoiceSender
         $send_invoice_email = $this->_configHelper->getInvoiceEmail($storeId);
         if ( $send_invoice_email != '0' ) {
@@ -473,6 +473,62 @@ class PaymentUtil extends AbstractHelper
             $this->_logger->info(__METHOD__.'Invoice Email Sent');
             $order->addStatusHistoryComment( __( 'Notified customer about invoice #%1.', $invoice->getId() ) )->setIsCustomerNotified( true )->save();
         }
+    }
+    public function createTransaction( $order = null, $paymentData = array() )
+    {
+        $this->_logger->info(__METHOD__ );
+        try {
+            if ( $paymentData['orderStatus'] != 'Approved' && $paymentData['merchantReference'] != $order->getIncrementId()) {
+                $this->_logger->info(__METHOD__.': Order Mismatched');
+                return false;
+            }
+            // Get payment object from order object
+            $payment = $order->getPayment();
+            $payment->setLastTransId( $paymentData['orderId'] )
+                ->setTransactionId( $paymentData['orderId'] ) ;
+                // ->setAdditionalInformation($paymentData)  ;
+            $formatedPrice = $order->getBaseCurrency()->formatTxt(
+                $order->getGrandTotal()
+            );
+
+            $message = __( 'The authorized amount is %1.', $formatedPrice );
+            // Get the object of builder class
+            $trans       = $this->_transactionBuilder;
+
+            $transaction = $trans->setPayment( $payment )
+                ->setOrder( $order )
+                ->setTransactionId( $paymentData['orderId'] )
+                ->setAdditionalInformation($paymentData)
+                ->setFailSafe( true )
+            // Build method creates the transaction and returns the object
+                ->build( \Magento\Sales\Model\Order\Payment\Transaction::TYPE_CAPTURE );
+
+            $payment->addTransactionCommentsToOrder(
+                $transaction,
+                $message
+            );
+            $payment->setParentTransactionId( null );
+            $payment->save();
+
+            return $transaction->save()->getTransactionId();
+        } catch ( \Exception $e ) {
+
+            $this->_logger->error( $e->getMessage() );
+        }
+    }
+
+    public function loadQuote($quoteId)
+    {
+        $this->_logger->info(__METHOD__ . " QuoteId:{$quoteId}");
+
+        $quote = $this->_quoteFactory->create()->loadByIdWithoutStore($quoteId);
+        if (!$quote->getId()) {
+            $error = "Failed to load quote : {$quoteId}";
+            $this->_logger->critical($error);
+            // $this->_redirectToCartPageWithError($error);
+            return null;
+        }
+        return $quote;
     }
 
 }
