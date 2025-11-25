@@ -99,7 +99,8 @@ class Communication extends AbstractHelper
         $this->_logger->info(__METHOD__ . "order:{$orderIncrementId} payflexId:{$payflexId} storeId:{$storeId}");
 
         $requestData = json_encode([
-            'amount'=> $amount,
+            'amount'                  => $amount,
+            'isPlugin'                => true,
             'merchantRefundReference' => $orderIncrementId.'-'.$amount.' '.$this->_date->date(),
             ]);
         $this->_logger->info(__METHOD__ . " request: ". $requestData);
