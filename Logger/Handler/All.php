@@ -7,13 +7,14 @@ use \Monolog\Logger;
 
 class All extends Base
 {
-    protected $level = Logger::DEBUG;
-
     public function __construct(DriverInterface $filesystem, $filePath = null)
     {
         $now = new \DateTime('now');
         $strToday = $now->format('Y-m-d');
         $this->fileName = "/var/log/payflex_gateway_{$strToday}.log";
         parent::__construct($filesystem, $filePath);
+        
+        // Set level after parent construction to ensure compatibility
+        $this->setLevel(Logger::DEBUG);
     }
 }
