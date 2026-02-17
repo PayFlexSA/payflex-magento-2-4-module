@@ -21,19 +21,69 @@
                         </tr>
                         <tr>
                             <th>Payflex Module version</th>
-                            <td><?=$support->getModuleVersion(); ?></td>
+                            <td>v<?=$support->getModuleVersion(); ?> (<?=$support->get_github_version_comparison($support->getModuleVersion()); ?>)</td>
                         </tr>
                         <tr>
                             <th>PHP Version</th>
-                            <td><?=$support->getPHPVersion(); ?></td>
+                            <td>v<?=$support->getPHPVersion(); ?></td>
                         </tr>
                         <tr>
                             <th>Payflex API Status</th>
                             <td>
                                 <?php if($support->validAccessToken()): ?>
-                                    <span style="color: green;">Authentication Successfull <small>(<?=substr($support->getAccessToken(), 0, 20)?>...)</small></span>
+                                    <span style="color: green;">Authentication Successful <small style="color: gray;font-size:0.9rem;">(Partial Token: <?=substr($support->getAccessToken(), 0, 20)?>...)</small></span>
                                 <?php else: ?>
                                     <span style="color: red;">Invalid Credentials or issue connecting to Payflex</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Payflex Install Type</th>
+                            <td><?=$support->get_payflex_install_type(); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Number of Stores</th>
+                            <td><?=$support->numberOfStores(); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Payflex Limits</th>
+                            <td>
+                                <?php $limits = $support->getPayflexLimits(); ?>
+                                <?php
+                                    $refund_text = 'N/A';
+                                    if($support->getPayflexLimits('enabledForRefunds') === true)
+                                    {
+                                        $refund_text = 'Enabled';
+                                    }
+                                    if($support->getPayflexLimits('enabledForRefunds') === false)
+                                    {
+                                        $refund_text = 'Disabled';
+                                    }
+                                ?>
+
+                                <?php if($limits): ?>
+                                    <div class="limits-table">
+                                        <div class="limits-row">
+                                            <div class="limits-detail-row">
+                                                <span class="limits-header">Minimum Amount</span>
+                                                <span class="limits-detail">: <?=$support->formatPrice($support->getPayflexLimits('minimumAmount', 'N/A'))?></span>
+                                            </div>
+                                        </div>
+                                        <div class="limits-row">
+                                            <div class="limits-detail-row">
+                                                <span class="limits-header">Maximum Amount</span>
+                                                <span class="limits-detail">: <?=$support->formatPrice($support->getPayflexLimits('maximumAmount', 'N/A'))?></span>
+                                            </div>
+                                        </div>
+                                        <div class="limits-row">
+                                            <div class="limits-detail-row">
+                                                <span class="limits-header">Refunds Enabled</span>
+                                                <span class="limits-detail">: <?=$refund_text?></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color: red;">Unable to retrieve limits. Please check API connection.</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -64,40 +114,132 @@
                                 <?php endif;?>
                             </td>
                         </tr>
+                        <?php if(false):?> <!-- Future CRON Tool for manual order checks -->
+                        <tr>
+                            <th>CRON Tool</th>
+                            <td>
+                                <div class="cron-tool-container">
+                                    <div class="cron-tool-title">Manually Check Orders by Date Range</div>
+                                    <form id="cron-tool-form" method="get">
+                                        <input type="hidden" name="section" value="payment" />
+                                        <input type="hidden" name="key" value="" />
+                                        
+                                        <div class="cron-tool-form">
+                                            <div class="form-field">
+                                                <label for="cron_year">Year:</label>
+                                                <select id="cron_year" name="cron_year">
+                                                    <option value="">Select Year</option>
+                                                    <?php
+                                                    $currentYear = date('Y');
+                                                    for ($y = $currentYear; $y >= $currentYear - 5; $y--) {
+                                                        $selected = (isset($_GET['cron_year']) && $_GET['cron_year'] == $y) ? 'selected' : '';
+                                                        echo "<option value='$y' $selected>$y</option>";
+                                                    }
+                                                    ?>
+                                                </select>
+                                            </div>
+                                            
+                                            <div class="form-field">
+                                                <label for="cron_month">Month:</label>
+                                                <select id="cron_month" name="cron_month">
+                                                    <option value="">Select Month</option>
+                                                    <?php
+                                                    $months = [
+                                                        1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April',
+                                                        5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August',
+                                                        9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December'
+                                                    ];
+                                                    foreach ($months as $num => $name) {
+                                                        $selected = (isset($_GET['cron_month']) && $_GET['cron_month'] == $num) ? 'selected' : '';
+                                                        echo "<option value='$num' $selected>$name</option>";
+                                                    }
+                                                    ?>
+                                                </select>
+                                            </div>
+                                            
+                                            <div class="form-field">
+                                                <label>
+                                                    <input type="checkbox" id="cron_show_all" name="cron_show_all" value="1" 
+                                                        <?php echo (isset($_GET['cron_show_all']) && $_GET['cron_show_all'] == '1') ? 'checked' : ''; ?> />
+                                                    Show all orders (not just pending)
+                                                </label>
+                                            </div>
+                                            
+                                            <div class="form-field">
+                                                <button type="submit" class="action-primary">Search Orders</button>
+                                            </div>
+                                        </div>
+                                    </form>
+                                    
+                                    <?php if (isset($_GET['cron_year']) && isset($_GET['cron_month']) && !empty($_GET['cron_year']) && !empty($_GET['cron_month'])): ?>
+                                        <?php 
+                                        $cronYear = $_GET['cron_year'];
+                                        $cronMonth = $_GET['cron_month'];
+                                        $showAll = isset($_GET['cron_show_all']) && $_GET['cron_show_all'] == '1';
+                                        $cronToolOrders = $support->getPendingOrders($cronYear, $cronMonth, !$showAll);
+                                        ?>
+                                        
+                                        <div class="cron-tool-results">
+                                            <h3>Orders for <?php echo $months[$cronMonth] . ' ' . $cronYear; ?></h3>
+                                            
+                                            <?php if(count($cronToolOrders) > 0): ?>
+                                                <table class="data-grid">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Order ID</th>
+                                                            <th>Store ID</th>
+                                                            <th>Order Date</th>
+                                                            <th>Status</th>
+                                                            <th>CRON Check Time</th>
+                                                            <th>Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <?php foreach($cronToolOrders as $order): ?>
+                                                            <tr>
+                                                                <td><a href="<?=$order['order_link']?>" target="_blank">#<?=$order['order_id']?></a></td>
+                                                                <td><?=$order['store_id']?></td>
+                                                                <td><?=$order['order_date']?></td>
+                                                                <td>
+                                                                    <span class="status-badge status-<?=strtolower(str_replace('_', '-', $order['order_status']))?>">
+                                                                        <?=$order['order_status']?>
+                                                                    </span>
+                                                                </td>
+                                                                <td><?=$order['cron_till_time']?></td>
+                                                                <td>
+                                                                    <button type="button" class="action-secondary" disabled>
+                                                                        Check Status
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        <?php endforeach; ?>
+                                                    </tbody>
+                                                </table>
+                                                <div class="result-count">Total: <?=count($cronToolOrders)?> order(s)</div>
+                                            <?php else: ?>
+                                                <div class="no-results">No orders found for the selected date range.</div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endif;?> <!-- Future CRON Tool for manual order checks -->
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 </div>
-
-<!--         $html = "<div class='environment-table'>";
-        foreach($environment as $env => $data)
-        {
-            $html .= "<div class='environment-row'>";
-            $html .= "<div class='env-detail-row'>";
-            $html .= "<span class='env-header'>Environment</span>";
-            $html .= "<span class='env-detail'>$env</span>";
-            $html .= "</div>";
-            foreach($data as $key => $value)
-            {
-                $html .= "<div class='env-detail-row'>";
-                $html .= "<span class='env-header'>$key</span>";
-                $html .= "<span class='env-detail'>$value</span>";
-                $html .= "</div>";
-            }
-            $html .= "</div class='environment-row'>";;
-        }
-        $html .= "</div>"; -->
 <style>
-    .environment-table
+    .environment-table, .limits-table
     {
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
         width: 100%;
     }
-    .environment-row
+    .environment-row, .limits-row
     {
         display: flex;
         flex-direction: column;
@@ -105,17 +247,17 @@
         padding-block: 10px;
         border-bottom: 1px solid #ccc;
     }
-    .environment-row:last-child
+    .environment-row:last-child, .limits-row:last-child
     {
         border-bottom: none;
     }
-    .env-detail-row
+    .env-detail-row, .limits-detail-row
     {
         display: flex;
         flex-direction: row;
         width: 100%;
     }
-    .env-header
+    .env-header, .limits-header
     {
         /* width: 50%; */
         text-transform: capitalize;
@@ -129,6 +271,102 @@
     }
     .order-info span{
         display: block;
+    }
+    
+    /* CRON Tool Styles */
+    .cron-tool-container {
+        margin: 10px 0;
+    }
+    .cron-tool-title {
+        font-weight: bold;
+        margin-bottom: 15px;
+        font-size: 14px;
+    }
+    .cron-tool-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        align-items: center;
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #f8f8f8;
+        border: 1px solid #ddd;
+    }
+    .cron-tool-form .form-field {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .cron-tool-form label {
+        font-weight: 600;
+        margin: 0;
+    }
+    .cron-tool-form select {
+        padding: 5px 10px;
+        border: 1px solid #ccc;
+        min-width: 150px;
+    }
+    .cron-tool-results {
+        margin-top: 20px;
+        padding: 15px;
+        background: #fff;
+        border: 1px solid #ddd;
+    }
+    .cron-tool-results h3 {
+        margin: 0 0 15px 0;
+        font-size: 16px;
+        color: #333;
+    }
+    .cron-tool-results .data-grid {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 10px;
+    }
+    .cron-tool-results .data-grid th,
+    .cron-tool-results .data-grid td {
+        padding: 8px 10px;
+        border: 1px solid #ddd;
+        text-align: left;
+    }
+    .cron-tool-results .data-grid th {
+        color: #555;
+        background: #f0f0f0;
+        font-weight: bold;
+    }
+    .cron-tool-results .data-grid tbody tr:hover {
+        background: #f9f9f9;
+    }
+    .status-badge {
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    .status-pending-payment {
+        background: #fff3cd;
+        color: #856404;
+    }
+    .status-processing {
+        background: #d1ecf1;
+        color: #0c5460;
+    }
+    .status-complete {
+        background: #d4edda;
+        color: #155724;
+    }
+    .status-canceled {
+        background: #f8d7da;
+        color: #721c24;
+    }
+    .result-count {
+        padding: 10px 0;
+        font-weight: bold;
+    }
+    .no-results {
+        padding: 20px;
+        text-align: center;
+        color: #666;
+        background: #f8f8f8;
     }
 
     

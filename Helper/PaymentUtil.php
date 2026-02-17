@@ -202,12 +202,12 @@ class PaymentUtil extends AbstractHelper
         
         if ($configurationModel->getMin() && $configurationModel->getMax())
         {
-            $merchantName = $this->_configHelper->getMerchantName($storeId) ?: 'your-merchant-name';
+            $merchantName = $this->_configHelper->getMerchantName($storeId) ?: 'yourmerchantname';
             $merchantName = urlencode(str_replace(' ', '-', $merchantName));
             
             if($this->_configHelper->getProductWidget($storeId))
             {
-                if($merchantName AND $merchantName != 'your-merchant-name')
+                if($merchantName AND $merchantName != 'yourmerchantname')
                 {
                     return '<script async src="https://widgets.payflex.co.za/' . $merchantName . '/payflex-widget-2.0.1.js?type=calculator&min=' . $configurationModel->getMin() . '&max=' . $configurationModel->getMax() . '&amount=' . $totalAmount . '" type="application/javascript"></script>';
                 }
@@ -223,20 +223,27 @@ class PaymentUtil extends AbstractHelper
         return false;
     }
     
+    /**
+     * This function is mainly run by the CRON job to refresh the merchant configuration such as min and max limits and refunds enabled status.
+     * 
+     * @param \Payflex\Gateway\Model\Configuration $merchantConfigurationModel
+     * @param int $storeId
+     * @return array the merchant configuration data from Payflex API response
+     */
     public function refreshMerchantConfiguration($merchantConfigurationModel, $storeId)
     {
         $apiData = $this->_communicationHelper->getMerchantConfiguration($storeId);
         
-        $merchantConfigurationModel->addData(
-            array(
-                "store_id" => $storeId,
-                "min" => $apiData['minimumAmount'] ? $apiData['minimumAmount'] : '',
-                "max" => $apiData['maximumAmount'] ? $apiData['maximumAmount'] : '',
-            ));
+        $merchantConfigurationModel->addData([
+            "store_id"        => $storeId,
+            "min"             => $apiData['minimumAmount'] ?? '',
+            "max"             => $apiData['maximumAmount'] ?? '',
+            "refunds_enabled" => $apiData['enabledForRefunds'] ?? '',
+        ]);
             
-            $merchantConfigurationModel->save();
-            return $merchantConfigurationModel;
-        }
+        $merchantConfigurationModel->save();
+        return $merchantConfigurationModel;
+    }
         
     /**
     * This function is mainly run by the CRON job to check the status of orders that are pending payment.

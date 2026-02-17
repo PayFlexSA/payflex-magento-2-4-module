@@ -21,31 +21,37 @@ class Communication extends AbstractHelper
      */
     private $directoryList;
     private $storeManager;
-    public $environments;
+    public  $environments;
+
+    private $merchantConfiguration = [];
+
+
     public function __construct(Context $context, \Magento\Framework\Stdlib\DateTime\DateTime $date)
     {
         parent::__construct($context);
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_logger = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
+        $objectManager        = \Magento\Framework\App\ObjectManager::getInstance();
+        $this->_logger        = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
         $this->_configuration = $objectManager->get("\Payflex\Gateway\Helper\Configuration");
-        $this->directoryList = $objectManager->get("Magento\Framework\App\Filesystem\DirectoryList");
+        $this->directoryList  = $objectManager->get("Magento\Framework\App\Filesystem\DirectoryList");
+
         $this->_logger->info('Communication : '.__METHOD__);
         $this->_accessToken = null;
-        $this->_date = $date;
-        $this->storeManager = $objectManager->get("\Magento\Store\Model\StoreManagerInterface");  
+        $this->_date        = $date;
+        $this->storeManager = $objectManager->get("\Magento\Store\Model\StoreManagerInterface");
+
         $this->environments = [
             'develop' => array(
-                "name"		=>	"Sandbox Test",
-                "api_url"	=>	"https://api.uat.payflex.co.za",
-                "auth_url"  =>  "https://auth-uat.payflex.co.za/auth/merchant",
-                "web_url"	=>	"https://api.uat.payflex.co.za",
+                "name"          => "Sandbox Test",
+                "api_url"       => "https://api.uat.payflex.co.za",
+                "auth_url"      => "https://auth-uat.payflex.co.za/auth/merchant",
+                "web_url"       => "https://api.uat.payflex.co.za",
                 "auth_audience" => "https://auth-dev.payflex.co.za",
             ),
             'production' => 	array(
-                "name"		=>	"Production",
-                "api_url"	=>	"https://api.payflex.co.za",
-                "auth_url"  =>  "https://auth.payflex.co.za/auth/merchant",
-                "web_url"	=>	"https://api.payflex.co.za",
+                "name"          => "Production",
+                "api_url"       => "https://api.payflex.co.za",
+                "auth_url"      => "https://auth.payflex.co.za/auth/merchant",
+                "web_url"       => "https://api.payflex.co.za",
                 "auth_audience" => "https://auth-production.payflex.co.za",
             )
         ];
@@ -70,15 +76,62 @@ class Communication extends AbstractHelper
         */ 
         if(!$this->_configuration->versionCheck('2.4.6'))
         {
+            /** @disregard P1012 */
             $post = \Magento\Framework\HTTP\ZendClient::POST;
         }
         else{
+            /** @disregard P1012 */
             $post = \Laminas\Http\Request::METHOD_POST;
         }
 
         $result = $this->_sendRequest($url, $header, [], $post, $requestData);
         $this->_logger->info(__METHOD__ . " getPayflexPage response: ". $result['response']);
         return json_decode($result['response'], true);
+    }
+
+    public function getEnvironments($storeId = null)
+    {
+        if($storeId == null) $storeId = $this->storeManager->getStore()->getId();
+
+        // Return all environment details
+        return $this->environments;
+    }
+
+    /**
+     * Gets the value of a field of the current environment.
+     * For example, getCurrentEnvironment('api_url') will return the api_url of the current environment.
+     * If field_name is 'key', it will return the key of the current environment (eg: develop or production).
+     * 
+     * @param string   $field_name - the name of the field to get (eg: api_url, auth_url, name, key)
+     * @param int|null $storeId - the store ID to get the environment for. If null, it will use the current store.
+     * 
+     * @return string - the value of the field for the current environment, or 'Unknown' if not found.
+     */
+    public function getCurrentEnvironment($field_name = 'name', $storeId = null)
+    {
+        $environment = 'Unknown';
+        $environemnt_key_position = 0;
+        if($storeId == null) $storeId = $this->storeManager->getStore()->getId();
+
+        // getPayflexEnvironment only returns an array key number, not the actual key
+        $environemnt_key_position = $this->_configuration->getPayflexEnvironment($storeId);
+
+        $indexed_environments = array_values($this->environments) ?? null;
+
+        if($indexed_environments !== null)
+        {
+            $current_environment = $indexed_environments[$environemnt_key_position] ?? 'Unknown';
+            $environment         = $current_environment[$field_name] ?? 'Unknown';
+
+            if($field_name == 'key')
+            {
+                $environment_keys = array_keys($this->environments) ?? null;
+                $environment = $environment_keys[$environemnt_key_position] ?? 'Unknown';
+            }
+            
+        }
+
+        return $environment;
     }
 
     public function getTransactionStatus($payflexId, $storeId = null)
@@ -102,7 +155,7 @@ class Communication extends AbstractHelper
             'amount'                  => $amount,
             'isPlugin'                => true,
             'merchantRefundReference' => $orderIncrementId.'-'.$amount.' '.$this->_date->date(),
-            ]);
+        ]);
         $this->_logger->info(__METHOD__ . " request: ". $requestData);
         $payflexUrl = $this->_getApiUrl('/order/' . $payflexId . '/refund/', $storeId);
 
@@ -110,8 +163,10 @@ class Communication extends AbstractHelper
 
         if(!$this->_configuration->versionCheck('2.4.6'))
         {
+            /** @disregard P1012 */
             $post = \Magento\Framework\HTTP\ZendClient::POST;
         }else{
+            /** @disregard P1012 */
             $post = \Laminas\Http\Request::METHOD_POST;
         }
 
@@ -121,13 +176,17 @@ class Communication extends AbstractHelper
 
     public function getMerchantConfiguration($storeId)
     {
+        if(isset($this->merchantConfiguration[$storeId])) return $this->merchantConfiguration[$storeId];
         
         $this->_logger->info(__METHOD__ . "storeId:{$storeId}");
         $payflexUrl = $this->_getApiUrl('/configuration', $storeId);
 
         $header = ['Content-Type: application/json', 'Authorization: Bearer ' . $this->getAccessToken($storeId)];
         $result = $this->_sendRequest($payflexUrl, $header);
-        return json_decode($result['response'], true);
+
+        $this->merchantConfiguration[$storeId] = json_decode($result['response'], true);
+
+        return $this->merchantConfiguration[$storeId];
     }
 
     public function forceRefeshToken($storeId = null)
@@ -192,23 +251,23 @@ class Communication extends AbstractHelper
     }
     protected function getTokenApiCall($storeId){
         $this->_logger->info('getTokenApiCall'.$storeId);
-        $AuthURL = '';
+		$AuthURL  = '';
 		$Audience = '';
         /*** 
             Use auth_url and auth_audience from produciton if selected envrionment is producitonelse use it from develp.
         ***/   
 		if($this->_configuration->getPayflexEnvironment($storeId)) {
-            $AuthURL = $this->environments['production']['auth_url'];
+			$AuthURL  = $this->environments['production']['auth_url'];
 			$Audience = $this->environments['production']['auth_audience'];
 		} else {
-			$AuthURL = $this->environments['develop']['auth_url'];
+			$AuthURL  = $this->environments['develop']['auth_url'];
 			$Audience = $this->environments['develop']['auth_audience'];
 		}
         $accessTokenParam = [
-            'grant_type' => 'client_credentials',
-            'client_id' => $this->_configuration->getPayflexClientId($storeId),
+            'grant_type'    => 'client_credentials',
+            'client_id'     => $this->_configuration->getPayflexClientId($storeId),
             'client_secret' => $this->_configuration->getPayflexClientSecret($storeId),
-            'audience' => $Audience,
+            'audience'      => $Audience,
         ];
 
         $headers = [
@@ -220,8 +279,10 @@ class Communication extends AbstractHelper
             # Check if magento version is 2.4.
             if(!$this->_configuration->versionCheck('2.4.6'))
             {
+                /** @disregard P1012 */
                 $post = \Magento\Framework\HTTP\ZendClient::POST;
             }else{
+                /** @disregard P1012 */
                 $post = \Laminas\Http\Request::METHOD_POST;
             }
             $accessTokenResult = $this->_sendRequest($AuthURL, $headers, [], $post, json_encode($accessTokenParam));
@@ -255,9 +316,11 @@ class Communication extends AbstractHelper
         if($method == ''){
             if(!$this->_configuration->versionCheck('2.4.6'))
             {
+                /** @disregard P1012 */
                 $method = \Magento\Framework\HTTP\ZendClient::GET;
             }
             else{
+                /** @disregard P1012 */
                 $method = \Laminas\Http\Request::METHOD_GET;
             }
         }

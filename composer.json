@@ -21,14 +21,6 @@
         "OSL-3.0",
         "AFL-3.0"
     ],
-    "extra": {
-        "map": [
-            [
-                "*",
-                "Payflex/Gateway"
-            ]
-        ]
-    },
     "autoload": {
         "files": [
             "registration.php"

@@ -67,7 +67,7 @@ class PaymentHelper
         return $paymentAction;
     }
 
-	public function capture(\Magento\Payment\Model\InfoInterface $payment, $amount, $storeId)
+    public function capture(\Magento\Sales\Model\Order\Payment $payment, $amount, $storeId)
     {
         // refer to Magento\Sales\Model\Order\Payment\Transaction\Builder::build for which fields should be set.
         $this->_logger->info(__METHOD__);
@@ -96,19 +96,19 @@ class PaymentHelper
 
     // Mage_Sales_Model_Order_Payment::refund
     // use getInfoInstance to get object of Mage_Payment_Model_Info (Mage_Payment_Model_Info::getMethodInstance Mage_Sales_Model_Order_Payment is sub class of Mage_Payment_Model_Info)
-    public function refund(\Magento\Payment\Model\InfoInterface $payment, $amount, $storeId)
+    public function refund(\Magento\Sales\Model\Order\Payment $payment, $amount, $storeId)
     {
         $this->_logger->info(__METHOD__);
-        $info = $payment->getAdditionalInformation();
-        $orderIncrementId = $payment->getOrder()->getIncrementId();
+        $info                = $payment->getAdditionalInformation();
+        $orderIncrementId    = $payment->getOrder()->getIncrementId();
         $requestTokenManager = $this->_objectManager->create("\Payflex\Gateway\Model\RequestToken");
-        $requestToken = $requestTokenManager->load($orderIncrementId, "order_id");
-        $payflexId = $requestToken->getpayflexId();
+        $requestToken        = $requestTokenManager->load($orderIncrementId, "order_id");
+        $payflexId           = $requestToken->getpayflexId();
         // $payflexId = $this->_paymentUtil->findPayflexOrderForRefund($orderIncrementId, $info);
         $apiResult = $this->_communication->refund($orderIncrementId, $payflexId, $amount, $storeId);
 
         $orderId = "unknown";
-        $order = $payment->getOrder();
+        $order   = $payment->getOrder();
         if ($order) {
             $orderId = $order->getIncrementId();
         }

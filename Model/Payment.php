@@ -33,6 +33,8 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     protected $_canRefundInvoicePartial = true;
 
     protected $_isInitializeNeeded = true;
+
+    protected $communication;
     /**
      * 
      * @var \Payflex\Gateway\Model\PaymentHelper
@@ -49,8 +51,8 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         \Magento\Payment\Helper\Data $paymentData,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Magento\Payment\Model\Method\Logger $logger,
-        \Magento\Framework\Model\ResourceModel\AbstractResource $resource = null,
-        \Magento\Framework\Data\Collection\AbstractDb $resourceCollection = null,
+        ?\Magento\Framework\Model\ResourceModel\AbstractResource $resource = null,
+        ?\Magento\Framework\Data\Collection\AbstractDb $resourceCollection = null,
         array $data = []
     )
     {
@@ -76,7 +78,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         $communication = $this->_objectManager->get("\Payflex\Gateway\Helper\Communication");
         $this->_paymentHelper = $this->_objectManager->create("\Payflex\Gateway\Model\PaymentHelper");
         $this->_paymentHelper->init($configuration, $communication);
-        
+        $this->communication = $communication;
         $this->_logger->info(__METHOD__);
     }
 
@@ -89,7 +91,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
      */
     public function initialize($paymentAction, $stateObject)
     {
-        $payment = $this->getInfoInstance();
+        $payment = $this->_infoInstance;
         /** @var \Magento\Sales\Model\Order $order */
         $order = $payment->getOrder();
         $order->setCanSendNewEmailFlag(false);
@@ -108,7 +110,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     public function assignData(\Magento\Framework\DataObject $data)
     {
         $this->_logger->info(__METHOD__ . " data:" . var_export($data, true));
-        $infoInstance = $this->getInfoInstance();
+        $infoInstance = $this->_infoInstance;
         $source = $data;
         if (isset($data['additional_data'])){
             $source = $this->_objectManager->create("\Magento\Framework\DataObject");
@@ -116,8 +118,6 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         }
         
         $info = [];
-        // $info["cartId"] = $source->getData("cartId");
-        // $info["guestEmail"] = $source->getData("guestEmail");
         
         $infoInstance->setAdditionalInformation($info);
         $infoInstance->save();
@@ -153,4 +153,19 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         $this->_logger->info(__METHOD__);
         return $this->_paymentHelper->isAvailable($quote);
     }
+
+    public function canRefund()
+    {
+        $this->_logger->info(__METHOD__);
+
+        $storeId = $this->getStore();
+        $limits = $this->communication->getMerchantConfiguration($storeId);
+
+        $enabledForRefunds = $limits['enabledForRefunds'] ?? false;
+
+        if ($enabledForRefunds) return true;
+
+        return false;
+    }
+
 }

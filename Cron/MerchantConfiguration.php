@@ -16,7 +16,7 @@ class MerchantConfiguration
     protected $_storeManager;
 
     /**
-     * @var $_paymentUtil \Payflex\Gateway\Helper\PaymentUtil
+     * @var mixed $_paymentUtil
      */
     protected $_paymentUtil;
 
