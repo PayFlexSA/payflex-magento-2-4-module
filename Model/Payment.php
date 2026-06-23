@@ -91,7 +91,8 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
      */
     public function initialize($paymentAction, $stateObject)
     {
-        $payment = $this->_infoInstance;
+        /** @var \Magento\Payment\Model\InfoInterface|\Payflex\Gateway\Model\Payment $payment */
+        $payment = $this->getInfoInstance();
         /** @var \Magento\Sales\Model\Order $order */
         $order = $payment->getOrder();
         $order->setCanSendNewEmailFlag(false);
@@ -110,7 +111,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     public function assignData(\Magento\Framework\DataObject $data)
     {
         $this->_logger->info(__METHOD__ . " data:" . var_export($data, true));
-        $infoInstance = $this->_infoInstance;
+        $infoInstance = $this->getInfoInstance();
         $source = $data;
         if (isset($data['additional_data'])){
             $source = $this->_objectManager->create("\Magento\Framework\DataObject");

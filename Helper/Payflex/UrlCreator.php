@@ -89,14 +89,19 @@ class UrlCreator
         //Add the PayFlex ID to the quote.
         $info = []; 
         $quotePayment = $quote->getPayment();
-        if (!empty($quotePayment->getAdditionalInformation())){
-          $quotePaymentAdditionalInfo = $quotePayment->getAdditionalInformation();
-          $source = $this->_objectManager->create("\Magento\Framework\DataObject");
-          $source->setData($quotePaymentAdditionalInfo);
-          $info["cartId"] = $source->getData("cartId");
-          $info["guestEmail"] = $source->getData("guestEmail");
-          $info["orderId"] = $response['orderId'];
-          $info["orderStatus"] = "Not Set";
+        if (!empty($quotePayment->getAdditionalInformation()))
+        {
+            $quotePaymentAdditionalInfo = $quotePayment->getAdditionalInformation();
+            $source = $this->_objectManager->create("\Magento\Framework\DataObject");
+            $source->setData($quotePaymentAdditionalInfo);
+            $info["cartId"]      = $source->getData("cartId");
+            $info["guestEmail"]  = $source->getData("guestEmail");
+            $info["orderId"]     = $response['orderId'];
+            $info["orderStatus"] = "Not Set";
+
+            $info["merchantReference"] = $quote->getReservedOrderId();
+            $info["amount"]            = (string)$quote->getBaseGrandTotal();
+            $info["currency"]          = (string)$quote->getBaseCurrencyCode();
         }
         $quotePayment->setAdditionalInformation($info);
         $quotePayment->save();
@@ -209,7 +214,7 @@ class UrlCreator
                 }
             }
         } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
-            $this->_logger->critical($e->_toString());
+            $this->_logger->critical($e->getMessage());
         }
 
         return $customerInfo;

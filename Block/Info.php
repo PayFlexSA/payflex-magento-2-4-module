@@ -28,29 +28,44 @@ class Info extends \Magento\Payment\Block\Info
             return $this->_paymentSpecificInformation;
         }
 
-        $data = $this->getInfo()->getAdditionalInformation();
-        $decodedData = [];
+        $transport = parent::_prepareSpecificInformation($transport);
+        $data = (array)$this->getInfo()->getAdditionalInformation();
+
+        $labelMap = [
+            'method_title'       => __('Payment Method'),
+            'orderId'            => __('Payflex Order ID'),
+            'orderStatus'        => __('Payflex Status'),
+            'merchantReference'  => __('Merchant Reference'),
+            'amount'             => __('Amount'),
+            'currency'           => __('Currency'),
+            'payflex_id'         => __('Payflex Order ID'),
+        ];
+
+        $hiddenKeys = [
+            'items', 'billing', 'shipping', 'merchant',
+            'cartId', 'guestEmail', 'token', 'expire', 'url'
+        ];
+
+        $display = [];
         foreach ($data as $key => $value) {
-            if (in_array($key, ['items', 'billing', 'shipping', 'merchant'])) {
+            if (in_array($key, $hiddenKeys, true)) {
                 continue;
             }
-            if (strtotime($key)) {
-                $decodedValue = json_decode($value, true);
-                if (!$decodedValue) {
-                    $decodedData[$key] = $this->getValueAsArray($value, true);
-                } else {
-                    $decodedData[$key] = $decodedValue;
-                }
+
+            $label = $labelMap[$key] ?? __(ucwords(str_replace('_', ' ', $key)));
+
+            if (is_array($value) || is_object($value)) {
+                $value = json_encode($value);
             }
-        	else {
-        		$decodedData[$key] = $value;
-        	}
+
+            $display[(string)$label] = (string)$value;
         }
 
-        $transport = parent::_prepareSpecificInformation($transport);
+        // Optional fallback if method_title is missing
+        if (!isset($display[(string)__('Payment Method')])) {
+            $display[(string)__('Payment Method')] = 'Payflex';
+        }
 
-        $this->_paymentSpecificInformation = $transport->setData(array_merge($decodedData, $transport->getData()));
-
-        return $this->_paymentSpecificInformation;
+        return $transport->setData(array_merge($transport->getData(), $display));
     }
 }
