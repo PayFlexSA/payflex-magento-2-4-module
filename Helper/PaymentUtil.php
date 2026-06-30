@@ -301,7 +301,7 @@ class PaymentUtil extends AbstractHelper
 
                         $this->_logger->info(__METHOD__.'Order status set to Processing: '.$order->getIncrementId());
                         // Update order status message
-                        $order->addStatusHistoryComment( __( 'PayFlex CRON: Payment was successful for order ID: '. $payflexOrderId ) )->setIsCustomerNotified( true )->save();
+                        $order->addStatusHistoryComment( __( 'Payflex CRON: Payment was successful for order ID: '. $payflexOrderId ) )->setIsCustomerNotified( true )->save();
                         //   try {
 
                         $orderId      = $order->getId();
@@ -338,16 +338,16 @@ class PaymentUtil extends AbstractHelper
                             $order->setState(Order::STATE_CANCELED)->setStatus(Order::STATE_CANCELED);
                             $this->orderManagement->cancel($order->getId());
 
-                            $order->addStatusHistoryComment('PayFlex CRON: Transaction '.strtolower($payflexApiResponse['orderStatus']).' from Payflex window, Order ID:'. $payflexOrderId)->save();
+                            $order->addStatusHistoryComment('Payflex CRON: Transaction '.strtolower($payflexApiResponse['orderStatus']).' from Payflex window, Order ID:'. $payflexOrderId)->save();
                             $order->cancel();
                             $order->save();
                         }
                     }
                     
-                    $this->_logger->info(__METHOD__ . " The PayFlex order status for orderIncrementId " . $orderIncrementId . " is Declined or Abandoned.");
+                    $this->_logger->info(__METHOD__ . " The Payflex order status for orderIncrementId " . $orderIncrementId . " is Declined or Abandoned.");
                     
                 } elseif (isset($payflexApiResponse["orderStatus"]) && $payflexApiResponse['orderStatus'] == "Created"){
-                    $this->_logger->info(__METHOD__ . " The PayFlex order status for Quote ID: " .  $orderIncrementId . " is currently set to Created. This order will be checked again on the next cron run.");
+                    $this->_logger->info(__METHOD__ . " The Payflex order status for Quote ID: " .  $orderIncrementId . " is currently set to Created. This order will be checked again on the next cron run.");
                     
                 }
                 
@@ -357,7 +357,7 @@ class PaymentUtil extends AbstractHelper
             }
         }
         
-        $this->_logger->info(__METHOD__ . " PayFlex order status cron has executed for store ID " . $storeId . ".");
+        $this->_logger->info(__METHOD__ . " Payflex order status cron has executed for store ID " . $storeId . ".");
     }
         
     public function generateInvoice( $order )

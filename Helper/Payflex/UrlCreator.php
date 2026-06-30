@@ -50,12 +50,12 @@ class UrlCreator
             $response = $this->_communication->getPayflexPage($requestData);
         }catch (\Exception $ex) {
             $this->_logger->error(__METHOD__.$ex->getMessage());
-            throw new InvalidTransitionException(__('Error in communication with PayFlex:'.$ex->getMessage()));
+            throw new InvalidTransitionException(__('Error in communication with Payflex:'.$ex->getMessage()));
             return false;
         }
 
         if (!$response || empty($response['redirectUrl'])) {
-            $error = "Invalid response from PayFlex: " . json_encode($response);
+            $error = "Invalid response from Payflex: " . json_encode($response);
             $this->_logger->critical(__METHOD__ . " " . $error);
             throw new InvalidTransitionException(__($error));
             return false;
@@ -83,10 +83,10 @@ class UrlCreator
         $session = $this->_objectManager->get('\Magento\Checkout\Model\Session');
         $session->setpayflexQuoteId($quote->getId());
 
-        //Log the PayFlex ID that is received from the API.
-        $this->_logger->info(__METHOD__ . " PayFlex Order ID: " . $response['orderId']);
+        //Log the Payflex ID that is received from the API.
+        $this->_logger->info(__METHOD__ . " Payflex Order ID: " . $response['orderId']);
 
-        //Add the PayFlex ID to the quote.
+        //Add the Payflex ID to the quote.
         $info = []; 
         $quotePayment = $quote->getPayment();
         if (!empty($quotePayment->getAdditionalInformation()))

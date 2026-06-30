@@ -134,7 +134,7 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
         $payflexId = $this->getRequest()->getParam('orderId');
 
         if(!$this->_validateToken($payflexId, $orderToken,$orderIncrementId)) {
-            $error = "The token and payment ID do not match at PayFlex side.";
+            $error = "The token and payment ID do not match at Payflex side.";
             $this->_logger->info($error);
             $this->_redirectToCartPageWithError($error);
             return;
@@ -186,7 +186,7 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
     {
         $this->_logger->info(__METHOD__ . " order:{$orderIncrementId} payflexId:{$payflexId} success:{$success}");
         if (!$orderIncrementId) {
-            $error = "The PayFlex response does not contain an order ID. Order failed.";
+            $error = "The Payflex response does not contain an order ID. Order failed.";
             $this->_logger->info($error);
             $this->_redirectToCartPageWithError($error);
             return;
@@ -321,7 +321,7 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
     {
         try{
             if(!$payflexId){
-                throw new \Magento\Framework\Exception\NotFoundException(__('Can\'t find the initial PayFlex request ID.'));
+                throw new \Magento\Framework\Exception\NotFoundException(__('Can\'t find the initial Payflex request ID.'));
             }
             $response = $this->_communication->getTransactionStatus($payflexId);
             if (!$response) { // defensive code. should never happen
@@ -334,7 +334,7 @@ abstract class CommonAction extends \Magento\Framework\App\Action\Action
             }
         } catch (\Exception $ex) {
             $this->_logger->critical(__METHOD__ . " payflexId:{$payflexId} response format is incorrect");
-            $this->_redirectToCartPageWithError("Failed to connect to PayFlex checking transaction status. Please try again later.");
+            $this->_redirectToCartPageWithError("Failed to connect to Payflex checking transaction status. Please try again later.");
             return false;
         }
 

@@ -388,7 +388,7 @@ class Support extends AbstractHelper
             return $this->github_latest_version;
         }
 
-        $url = "https://api.github.com/repos/PayFlexSA/payflex-magento-2-4-module/releases/latest";
+        $url = "https://api.github.com/repos/PayflexSA/payflex-magento-2-4-module/releases/latest";
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
@@ -423,7 +423,7 @@ class Support extends AbstractHelper
 
     public function get_github_latest_link()
     {
-        return "https://github.com/PayFlexSA/payflex-magento-2-4-module/releases/latest";
+        return "https://github.com/PayflexSA/payflex-magento-2-4-module/releases/latest";
     }
 
     public function get_payflex_install_type()

@@ -4,7 +4,7 @@
     <system>
         <section id="payment">
             <group id="payflex_gateway" translate="label" type="text" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>PayFlex</label>
+                <label>Payflex</label>
                 <field id="active" translate="label" type="select" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Enabled</label>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
@@ -58,7 +58,7 @@
                     <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
                 </field>
                 <field id="payflex_cron" translate="label" type="select" sortOrder="13" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>PayFlex Cron</label>
+                    <label>Payflex Cron</label>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
                 </field>
                 <field id="cron_frequency" translate="label" type="text" sortOrder="14" showInDefault="1" showInWebsite="1" showInStore="1">

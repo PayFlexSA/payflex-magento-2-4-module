@@ -116,7 +116,7 @@ class PaymentHelper
 
         $response = $apiResult['response'];
         if ($apiResult['errmsg']) {
-            $errorMessage = " Failed to refund order:{$orderId}, {$apiResult['errmsg']}, response from PayFlex: " . $response;
+            $errorMessage = " Failed to refund order:{$orderId}, {$apiResult['errmsg']}, response from Payflex: " . $response;
             $this->_paymentUtil->saveInvalidRefundResponse($payment, $errorMessage);
             $this->_logger->critical(__METHOD__ . $errorMessage);
             throw new \Magento\Framework\Exception\PaymentException(__($errorMessage));

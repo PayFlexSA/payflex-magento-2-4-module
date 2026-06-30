@@ -293,7 +293,7 @@ class Communication extends AbstractHelper
             return false;
         }
         if (!$response || !isset($response['access_token'])) {
-            $errorMessage = 'Error getting access token from PayFlex';
+            $errorMessage = 'Error getting access token from Payflex';
             // throw new \Magento\Framework\Exception\PaymentException(__($errorMessage));
             return false;
         }
@@ -370,7 +370,7 @@ class Communication extends AbstractHelper
             'errmsg' => $errorMessage,
         ];
         curl_close($ch);
-        $this->_logger->info(__METHOD__ . " response from PayFlex - HttpCode:{$httpcode} Body:{$response}");
+        $this->_logger->info(__METHOD__ . " response from Payflex - HttpCode:{$httpcode} Body:{$response}");
         return $result;
     }
 }

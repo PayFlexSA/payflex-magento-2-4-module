@@ -21,7 +21,7 @@
 				<active>1</active>
 				<payment_action>order</payment_action>
 				<order_status>pending_payflex</order_status>
-				<title>PayFlex</title>
+				<title>Payflex</title>
 				<allowspecific>0</allowspecific>
 				<!-- <api_endpoint>https://api.payflex.co.za</api_endpoint>
 				<auth_token_endpoint>https://payflex.eu.auth0.com/oauth/token</auth_token_endpoint>

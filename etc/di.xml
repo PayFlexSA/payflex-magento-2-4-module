@@ -3,7 +3,7 @@
 
     <type name="Payflex\Gateway\Logger\PayflexLogger">
         <arguments>
-            <argument name="name" xsi:type="string">PayFlex</argument>
+            <argument name="name" xsi:type="string">Payflex</argument>
             <argument name="handlers" xsi:type="array">
                 <item name="system" xsi:type="object">Payflex\Gateway\Logger\Handler\All</item>
             </argument>
