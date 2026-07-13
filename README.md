@@ -2,7 +2,9 @@
 
 ## Overview
 
-The Payflex Magento 2.4 Gateway plugin integrates Payflex with your Magento store, providing seamless payment processing.
+The Payflex Magento 2.4 Gateway plugin integrates Payflex with your Magento store, adding Payflex "pay in instalments" as a checkout payment method.
+
+**Requirements:** PHP 7.4 or newer, and one of the Magento versions listed below.
 
 ## Tested Magento2 Versions
 
@@ -16,14 +18,14 @@ The Payflex Magento 2.4 Gateway plugin integrates Payflex with your Magento stor
 
 Follow these steps to install the Payflex Gateway plugin:
 
-> ⚠️ **Choose one installation method — 1a *or* 1b, not both.** Installing via Composer (1b) while a copy also exists in `app/code/Payflex/Gateway` (1a) registers the module twice and causes load errors. If you are migrating from a manual install to Composer, delete `app/code/Payflex/Gateway` first (and vice versa).
+> ⚠️ **Choose one installation method — 1a *or* 1b, not both.** Keeping a copy in `app/code/Payflex/Gateway` (1a) *and* installing via Composer (1b) means two copies of the module on disk. The module's `registration.php` guards against a double-registration fatal — whichever copy loads first wins and the other silently defers — but running both is confusing and makes updates unpredictable. If you are migrating from a manual install to Composer, delete `app/code/Payflex/Gateway` first (and vice versa).
 
 ### 1a. Copy Plugin to Directory (Manual)
 
 - Paste the plugin into the appropriate directory: `/app/code/` for a release (downloaded a zip), or `/app/code/Payflex/Gateway` if you're using the repo directly
 - This README.md should be located here if done correctly: `/app/code/Payflex/Gateway/README.md`
 
-### 1b. Copy Plugin to Directory (Composer)
+### 1b. Install via Composer
 
 The package is published on [Packagist](https://packagist.org/packages/payflex/magento2-gateway), so no extra repository configuration is needed. From your Magento root directory, run:
 
@@ -44,8 +46,20 @@ The `^2.0` constraint installs the latest **tagged stable release** (e.g. `2.0.3
   php bin/magento setup:upgrade
   php bin/magento setup:di:compile
   php bin/magento setup:static-content:deploy -f
-  chmod -R 777 var/ pub/ pub/static/ generated/
+  chmod -R 775 var/ pub/ pub/static/ generated/
   php bin/magento cache:clean
+  ```
+
+  > **Note:** `setup:static-content:deploy -f` is only required in production mode; in developer mode you can skip it. Adjust the `chmod` target ownership/permissions to match your hosting setup — `775` with the correct web-server group is generally sufficient. See Magento's [file system permissions](https://experienceleague.adobe.com/en/docs/commerce-operations/installation-guide/prerequisites/file-system/overview) guidance if in doubt.
+
+### 3. Configure the Payment Method
+
+Once the setup commands finish, enable and configure the gateway in the Magento admin:
+
+1. Go to **Stores → Configuration → Sales → Payment Methods → Payflex**.
+2. Enter your Payflex **Client ID** and **Client Secret**, and select the correct **Environment** (Sandbox or Production).
+3. Set **Enabled** to *Yes* and save.
+4. Flush the cache (`php bin/magento cache:flush`) if the method does not appear at checkout immediately.
 
 ## Upgrading from Previous Versions of This Plugin (<V2.0.0)
 
