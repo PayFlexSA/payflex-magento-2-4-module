@@ -27,15 +27,13 @@ Follow these steps to install the Payflex Gateway plugin:
 
 ### 1b. Install via Composer
 
-The package is published on [Packagist](https://packagist.org/packages/payflex/magento2-gateway), so no extra repository configuration is needed. From your Magento root directory, run:
+From your Magento root directory, run:
 
 ```bash
 composer require "payflex/magento2-gateway:^2.0"
 ```
 
-The `^2.0` constraint installs the latest **tagged stable release** (e.g. `2.0.3`), not the development branch. Running `composer update payflex/magento2-gateway` later pulls the newest `2.x` release. Omitting the constraint (a bare `composer require payflex/magento2-gateway`) can resolve to the `dev-main` branch, which is not recommended.
-
-> **Note:** Quote the constraint (`"payflex/magento2-gateway:^2.0"`) as shown — on Windows `cmd`, an unquoted `^` is an escape character and will mangle the version. If Composer prompts for GitHub credentials, generate a personal access token as instructed.
+`^2.0` tracks the latest stable `2.x` release; `composer update payflex/magento2-gateway` pulls newer ones later. (Windows `cmd` users: keep the quotes so `^` isn't treated as an escape.)
 
 ### 2. Run Magento Setup Commands
 
