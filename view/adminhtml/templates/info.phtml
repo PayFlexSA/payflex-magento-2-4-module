@@ -114,11 +114,11 @@
                                 <?php endif;?>
                             </td>
                         </tr>
-                        <?php if(false):?> <!-- Future CRON Tool for manual order checks -->
+                        <?php if(true):?> <!-- Future CRON Tool for manual order checks -->
                         <tr>
                             <th>CRON Tool</th>
                             <td>
-                                <div class="cron-tool-container">
+                                <div class="cron-tool-container" id="payflex-cron-tool">
                                     <div class="cron-tool-title">Manually Check Orders by Date Range</div>
                                     <form id="cron-tool-form" method="get">
                                         <input type="hidden" name="section" value="payment" />
@@ -207,9 +207,16 @@
                                                                 </td>
                                                                 <td><?=$order['cron_till_time']?></td>
                                                                 <td>
-                                                                    <button type="button" class="action-secondary" disabled>
+                                                                    <button type="button" class="action-secondary payflex-check-status"
+                                                                        data-check-url="<?=$this->getUrl('payflex/order/checkStatus', ['order_id' => $order['entity_id']])?>">
                                                                         Check Status
                                                                     </button>
+                                                                    <button type="button" class="action-secondary payflex-update-status"
+                                                                        data-update-url="<?=$this->getUrl('payflex/order/updateStatus', ['order_id' => $order['entity_id']])?>"
+                                                                        style="display:none;">
+                                                                        Update Order
+                                                                    </button>
+                                                                    <div class="payflex-check-result" style="display:none;"></div>
                                                                 </td>
                                                             </tr>
                                                         <?php endforeach; ?>
@@ -231,6 +238,119 @@
         </div>
     </div>
 </div>
+<?php
+    /** @var \Magento\Framework\Data\Form\FormKey $formKeyProvider */
+    $formKeyProvider = \Magento\Framework\App\ObjectManager::getInstance()->get(\Magento\Framework\Data\Form\FormKey::class);
+?>
+<script>
+(function () {
+    var container = document.getElementById('payflex-cron-tool');
+    if (!container || container.dataset.payflexBound) {
+        return;
+    }
+    container.dataset.payflexBound = '1';
+
+    var formKey = <?= /* @noEscape */ json_encode($formKeyProvider->getFormKey()) ?>;
+
+    function busy(btn, isBusy, idleText) {
+        btn.disabled = isBusy;
+        btn.textContent = isBusy ? 'Working...' : idleText;
+    }
+
+    function showResult(row, text, ok) {
+        var box = row.querySelector('.payflex-check-result');
+        if (!box) {
+            return;
+        }
+        box.textContent = text;
+        box.style.display = 'block';
+        box.className = 'payflex-check-result ' + (ok ? 'payflex-check-result--ok' : 'payflex-check-result--error');
+    }
+
+    function summary(data) {
+        var parts = [];
+        if (data.payflex_status) {
+            parts.push('Payflex: ' + data.payflex_status);
+        }
+        if (data.message) {
+            parts.push(data.message);
+        }
+        return parts.join(' — ') || 'Done.';
+    }
+
+    function refreshStatusBadge(row, statusCode) {
+        if (!statusCode) {
+            return;
+        }
+        var badge = row.querySelector('.status-badge');
+        if (!badge) {
+            return;
+        }
+        // Mirror the server render: the badge shows the raw status code and its
+        // colour comes from a status-<code> class.
+        badge.textContent = statusCode;
+        badge.className = 'status-badge status-' + String(statusCode).toLowerCase().replace(/_/g, '-');
+    }
+
+    container.addEventListener('click', function (e) {
+        var checkBtn = e.target.closest ? e.target.closest('.payflex-check-status') : null;
+        var updateBtn = e.target.closest ? e.target.closest('.payflex-update-status') : null;
+
+        if (checkBtn) {
+            e.preventDefault();
+            handleCheck(checkBtn);
+        } else if (updateBtn) {
+            e.preventDefault();
+            handleUpdate(updateBtn);
+        }
+    });
+
+    function handleCheck(btn) {
+        var row = btn.closest('tr');
+        busy(btn, true, 'Check Status');
+        fetch(btn.getAttribute('data-check-url'), {
+            method: 'GET',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            busy(btn, false, 'Check Status');
+            showResult(row, summary(data), data.success);
+            var updateBtn = row.querySelector('.payflex-update-status');
+            if (updateBtn) {
+                updateBtn.style.display = data.mismatch ? '' : 'none';
+            }
+        }).catch(function () {
+            busy(btn, false, 'Check Status');
+            showResult(row, 'Could not reach Payflex. Please try again.', false);
+        });
+    }
+
+    function handleUpdate(btn) {
+        if (!window.confirm('Update this order to match the Payflex status? This may create an invoice or cancel the order.')) {
+            return;
+        }
+        var row = btn.closest('tr');
+        busy(btn, true, 'Update Order');
+        fetch(btn.getAttribute('data-update-url'), {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'form_key=' + encodeURIComponent(formKey)
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            busy(btn, false, 'Update Order');
+            showResult(row, summary(data), data.success);
+            refreshStatusBadge(row, data.order_status);
+            if (data.success && !data.mismatch) {
+                btn.style.display = 'none';
+            }
+        }).catch(function () {
+            busy(btn, false, 'Update Order');
+            showResult(row, 'The order could not be updated. Please try again.', false);
+        });
+    }
+})();
+</script>
 <style>
     .environment-table, .limits-table
     {
@@ -367,6 +487,24 @@
         text-align: center;
         color: #666;
         background: #f8f8f8;
+    }
+    .cron-tool-results .data-grid td .payflex-update-status {
+        margin-top: 5px;
+    }
+    .payflex-check-result {
+        margin-top: 6px;
+        padding: 5px 8px;
+        border-radius: 3px;
+        font-size: 12px;
+        line-height: 1.4;
+    }
+    .payflex-check-result--ok {
+        background: #d4edda;
+        color: #155724;
+    }
+    .payflex-check-result--error {
+        background: #f8d7da;
+        color: #721c24;
     }
 
     

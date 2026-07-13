@@ -202,6 +202,7 @@ class Support extends AbstractHelper
 
             
             $orders[$id]['order_id'] = $value['increment_id'];
+            $orders[$id]['entity_id'] = $value['entity_id'];
             $orders[$id]['store_id'] = $value['store_id'];
 
             // Get order date

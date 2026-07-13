@@ -1,35 +1,467 @@
 <?php
 /**
- * Admin order payment info block for Payflex.
- * Uses Block/Info.php label map — raw keys are never shown.
+ * Admin order payment info block for the Payflex gateway.
+ *
+ * All data preparation lives in Block/Info.php — this template only renders
+ * what the block exposes. Sensitive keys (token, url, customer email, ...) are
+ * filtered out in the block and never reach here.
+ *
+ * The block is split into two tabs:
+ *   - "Overview"          — the everyday, read-only payment details.
+ *   - "Verify & Reconcile" — the occasional sanity-check tools (confirm the
+ *                            live Payflex status, reconcile the order to match).
+ * Separating them keeps the reconcile actions out of the everyday view and
+ * signals they are not something to run routinely.
+ *
+ * The tab switching and status panel call the admin endpoints via plain
+ * fetch() / DOM APIs (no RequireJS dependency) so it behaves identically
+ * across Magento 2.4.2 - 2.4.9.
+ *
+ * @var \Payflex\Gateway\Block\Info $block
+ * @var \Magento\Framework\Escaper $escaper
  */
 
-$labelMap = [
-    'orderId'           => __('Payflex Order ID'),
-    'orderStatus'       => __('Payflex Status'),
-    'merchantReference' => __('Order Reference'),
-    'amount'            => __('Amount'),
-    'currency'          => __('Currency'),
-];
+/** @var \Magento\Framework\Escaper $esc */
+$esc = isset($escaper) ? $escaper : $block;
 
-$hiddenKeys = ['cartId', 'guestEmail', 'method_title', 'token', 'expire', 'url'];
-
-$additionalInfo = $block->getInfo()->getAdditionalInformation();
+$method        = $block->getMethod();
+$methodTitle   = $method ? $method->getTitle() : 'Payflex';
+$transactionId = $block->getTransactionId();
+$status        = $block->getPayflexStatus();
+$verified      = $block->getVerifiedStatus();
+$orderId       = $block->getOrderEntityId();
+$processedAt   = $block->getProcessedAt();
+$checkedAt     = $block->getStatusCheckedAt();
+$primaryRows   = $block->getPrimaryRows();
+$extraRows     = $block->getAdditionalRows();
+$refunds       = $block->getRefunds();
+$hasOrder      = $orderId !== null;
+$isEmpty       = $transactionId === null && $status === null && empty($primaryRows) && empty($extraRows);
 ?>
+<div class="payflex-info" id="payflex-info">
+    <div class="payflex-info__header">
+        <img class="payflex-info__logo"
+             src="<?= $esc->escapeUrl($block->getLogoUrl()) ?>"
+             alt="<?= $esc->escapeHtmlAttr($methodTitle) ?>" />
+    </div>
 
-<p><strong><?php echo $block->escapeHtml($block->getMethod()->getTitle()) ?></strong></p>
+    <?php if ($hasOrder): ?>
+        <div class="payflex-info__tabs" role="tablist">
+            <button type="button" class="payflex-info__tab is-active"
+                    data-payflex-tab="overview">
+                <?= $esc->escapeHtml(__('Overview')) ?>
+            </button>
+            <button type="button" class="payflex-info__tab"
+                    data-payflex-tab="verify">
+                <?= $esc->escapeHtml(__('Verify & Reconcile')) ?>
+            </button>
+        </div>
+    <?php endif; ?>
 
-<?php if (!empty($additionalInfo)): ?>
-<table class="data-table">
-<?php foreach ($additionalInfo as $_key => $_value): ?>
-    <?php if (in_array($_key, $hiddenKeys, true) || is_array($_value) || is_object($_value)) continue; ?>
-    <?php $_label = $labelMap[$_key] ?? __(ucwords(str_replace('_', ' ', $_key))); ?>
-    <tr>
-        <th style="text-align:left; padding-right:12px"><?php echo $block->escapeHtml($_label) ?></th>
-        <td><?php echo $block->escapeHtml($_value) ?></td>
-    </tr>
-<?php endforeach; ?>
-</table>
+    <div class="payflex-info__panel is-active" data-payflex-panel="overview">
+        <table class="data-table admin__table-secondary payflex-info__table">
+            <tbody>
+            <?php if (false): # We don't need to show this on the overview tab?>
+            <?php if ($status !== null || $hasOrder): ?>
+                <tr>
+                    <th class="payflex-info__th"><?= $esc->escapeHtml(__('Payflex Status')) ?></th>
+                    <td class="payflex-info__td">
+                        <span class="payflex-status <?= $esc->escapeHtmlAttr($block->getStatusClass($status)) ?>"
+                              data-payflex-status>
+                            <?= $esc->escapeHtml($status !== null ? $status : __('Unknown')) ?>
+                        </span>
+                        <?php if ($block->getRefundPillLabel() !== null): ?>
+                            <span class="payflex-status payflex-status--refunded"
+                                  title="<?= $esc->escapeHtmlAttr(__('Refunded %1', $block->getFormattedRefundedTotal())) ?>">
+                                <?= $esc->escapeHtml($block->getRefundPillLabel()) ?>
+                            </span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endif; ?>
+            <?php endif; ?>
+            
+            <?php if ($block->getOrderStatusLabel() !== null): ?>
+                <tr>
+                    <th class="payflex-info__th"><?= $esc->escapeHtml(__('Order Status')) ?></th>
+                    <td class="payflex-info__td" data-order-status><?= $esc->escapeHtml($block->getOrderStatusLabel()) ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php if ($transactionId !== null): ?>
+                <tr>
+                    <th class="payflex-info__th"><?= $esc->escapeHtml(__('Transaction ID')) ?></th>
+                    <td class="payflex-info__td payflex-info__td--mono"><?= $esc->escapeHtml($transactionId) ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php foreach ($primaryRows as $row): ?>
+                <tr>
+                    <th class="payflex-info__th"><?= $esc->escapeHtml(__($row['label'])) ?></th>
+                    <td class="payflex-info__td"><?= $esc->escapeHtml($row['value']) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if ($processedAt !== null): ?>
+                <tr>
+                    <th class="payflex-info__th"><?= $esc->escapeHtml(__('Processed')) ?></th>
+                    <td class="payflex-info__td"><?= $esc->escapeHtml($processedAt) ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php if ($block->getModuleVersion() !== null): ?>
+                <tr>
+                    <th class="payflex-info__th"><?= $esc->escapeHtml(__('Plugin Version')) ?></th>
+                    <td class="payflex-info__td"><?= $esc->escapeHtml($block->getModuleVersion()) ?></td>
+                </tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
+
+        <?php if (!empty($refunds)): ?>
+            <div class="payflex-info__refunds">
+                <span class="payflex-info__refunds-title">
+                    <?= $esc->escapeHtml(__('Refunds')) ?>
+                    (<?= $esc->escapeHtml($block->getFormattedRefundedTotal()) ?>)
+                </span>
+                <table class="data-table admin__table-secondary payflex-info__table">
+                    <tbody>
+                    <?php foreach ($refunds as $refund): ?>
+                        <tr>
+                            <th class="payflex-info__th"><?= $esc->escapeHtml($refund['date']) ?></th>
+                            <td class="payflex-info__td">
+                                <?= $esc->escapeHtml($refund['amount_formatted'] !== null ? $refund['amount_formatted'] : __('N/A')) ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+
+        <?php if (!empty($extraRows)): ?>
+            <table class="data-table admin__table-secondary payflex-info__table payflex-info__table--extra">
+                <tbody>
+                <?php foreach ($extraRows as $row): ?>
+                    <tr>
+                        <th class="payflex-info__th"><?= $esc->escapeHtml(__($row['label'])) ?></th>
+                        <td class="payflex-info__td"><?= $esc->escapeHtml($row['value']) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+
+        <?php if ($isEmpty): ?>
+            <p class="payflex-info__empty"><?= $esc->escapeHtml(__('No Payflex transaction details are available yet.')) ?></p>
+        <?php endif; ?>
+    </div>
+
+    <?php if ($hasOrder): ?>
+        <div class="payflex-info__panel" data-payflex-panel="verify">
+            <p class="payflex-info__hint">
+                <?= $esc->escapeHtml(__('Shows the payment status Payflex last reported (manually). Use Confirm Payflex Status to fetch the latest directly from Payflex.')) ?>
+            </p>
+
+            <div class="payflex-info__status-panel">
+                <div class="payflex-info__status-line">
+                    <span class="payflex-info__status-key"><?= $esc->escapeHtml(__('Payflex Gateway Status')) ?>:</span>
+                    <span class="payflex-status <?= $esc->escapeHtmlAttr($block->getStatusClass($verified)) ?>"
+                          data-payflex-status>
+                        <?= $esc->escapeHtml($verified !== null ? $verified : __('Unknown')) ?>
+                    </span>
+                </div>
+                <?php if ($block->getOrderStatusLabel() !== null): ?>
+                    <div class="payflex-info__status-line">
+                        <span class="payflex-info__status-key"><?= $esc->escapeHtml(__('Order Status')) ?>:</span>
+                        <span data-order-status><?= $esc->escapeHtml($block->getOrderStatusLabel()) ?></span>
+                    </div>
+                <?php endif; ?>
+                <div class="payflex-info__status-line payflex-info__checked-at" data-payflex-checked-line
+                     <?= $checkedAt === null ? 'style="display:none;"' : '' ?>>
+                    <span class="payflex-info__status-key"><?= $esc->escapeHtml(__('Last checked')) ?>:</span>
+                    <span data-payflex-checked-at><?= $esc->escapeHtml($checkedAt !== null ? $checkedAt : '') ?></span>
+                </div>
+            </div>
+
+            <div class="payflex-info__actions">
+                <button type="button" class="action-secondary" data-payflex-check>
+                    <?= $esc->escapeHtml(__('Confirm Payflex Status')) ?>
+                </button>
+                <button type="button" class="action-primary payflex-info__update-btn"
+                        data-payflex-update style="display:none;">
+                    <?= $esc->escapeHtml(__('Update Order to Match')) ?>
+                </button>
+            </div>
+            <div class="payflex-info__message" data-payflex-message style="display:none;"></div>
+        </div>
+    <?php endif; ?>
+
+    <?= $block->getChildHtml() ?>
+</div>
+
+<?php if ($hasOrder): ?>
+<script>
+(function () {
+    var root = document.getElementById('payflex-info');
+    if (!root || root.dataset.payflexBound) {
+        return;
+    }
+    root.dataset.payflexBound = '1';
+
+    var checkUrl   = <?= /* @noEscape */ json_encode($block->getCheckStatusUrl()) ?>;
+    var updateUrl  = <?= /* @noEscape */ json_encode($block->getUpdateStatusUrl()) ?>;
+    var formKey    = <?= /* @noEscape */ json_encode($block->getFormKey()) ?>;
+
+    var checkBtn    = root.querySelector('[data-payflex-check]');
+    var updateBtn   = root.querySelector('[data-payflex-update]');
+    var messageBox  = root.querySelector('[data-payflex-message]');
+    var statusEls   = root.querySelectorAll('[data-payflex-status]');
+    var orderEls    = root.querySelectorAll('[data-order-status]');
+    var checkedEls  = root.querySelectorAll('[data-payflex-checked-at]');
+    var checkedLine = root.querySelector('[data-payflex-checked-line]');
+
+    var STATUS_CLASSES = ['payflex-status--approved', 'payflex-status--declined', 'payflex-status--pending'];
+
+    // Tab switching.
+    var tabs = root.querySelectorAll('[data-payflex-tab]');
+    var panels = root.querySelectorAll('[data-payflex-panel]');
+    tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            var target = tab.getAttribute('data-payflex-tab');
+            tabs.forEach(function (t) { t.classList.toggle('is-active', t === tab); });
+            panels.forEach(function (p) {
+                p.classList.toggle('is-active', p.getAttribute('data-payflex-panel') === target);
+            });
+        });
+    });
+
+    function classForStatus(status) {
+        switch (String(status || '').toLowerCase()) {
+            case 'approved':
+                return 'payflex-status--approved';
+            case 'declined':
+            case 'abandoned':
+            case 'cancelled':
+            case 'canceled':
+            case 'failed':
+                return 'payflex-status--declined';
+            default:
+                return 'payflex-status--pending';
+        }
+    }
+
+    function showMessage(text, state) {
+        if (!messageBox) {
+            return;
+        }
+        var modifier = 'payflex-info__message--error';
+        if (state === 'ok' || state === true) {
+            modifier = 'payflex-info__message--ok';
+        } else if (state === 'warning') {
+            modifier = 'payflex-info__message--warning';
+        }
+        messageBox.textContent = text;
+        messageBox.style.display = '';
+        messageBox.className = 'payflex-info__message ' + modifier;
+    }
+
+    function applyResult(data) {
+        if (data.payflex_status) {
+            statusEls.forEach(function (el) {
+                el.textContent = data.payflex_status;
+                STATUS_CLASSES.forEach(function (c) { el.classList.remove(c); });
+                el.classList.add(classForStatus(data.payflex_status));
+            });
+        }
+        if (data.order_status_label) {
+            orderEls.forEach(function (el) { el.textContent = data.order_status_label; });
+        }
+        if (data.checked_at) {
+            checkedEls.forEach(function (el) { el.textContent = data.checked_at; });
+            if (checkedLine) {
+                checkedLine.style.display = '';
+            }
+        }
+        if (updateBtn) {
+            updateBtn.style.display = data.mismatch ? '' : 'none';
+        }
+    }
+
+    function busy(btn, isBusy, idleText) {
+        if (!btn) {
+            return;
+        }
+        btn.disabled = isBusy;
+        btn.textContent = isBusy ? '<?= $esc->escapeJs(__('Working...')) ?>' : idleText;
+    }
+
+    function request(url, body) {
+        var opts = { method: body ? 'POST' : 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' } };
+        if (body) {
+            opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            opts.body = body;
+        }
+        return fetch(url, opts).then(function (r) { return r.json(); });
+    }
+
+    if (checkBtn) {
+        checkBtn.addEventListener('click', function () {
+            busy(checkBtn, true);
+            request(checkUrl).then(function (data) {
+                busy(checkBtn, false, '<?= $esc->escapeJs(__('Confirm Payflex Status')) ?>');
+                applyResult(data);
+                showMessage(data.message || '', data.success ? (data.mismatch ? 'warning' : 'ok') : 'error');
+            }).catch(function () {
+                busy(checkBtn, false, '<?= $esc->escapeJs(__('Confirm Payflex Status')) ?>');
+                showMessage('<?= $esc->escapeJs(__('Could not reach Payflex. Please try again.')) ?>', false);
+            });
+        });
+    }
+
+    if (updateBtn) {
+        updateBtn.addEventListener('click', function () {
+            if (!window.confirm('<?= $esc->escapeJs(__('Update this order to match the Payflex status? This may create an invoice or cancel the order.')) ?>')) {
+                return;
+            }
+            busy(updateBtn, true);
+            request(updateUrl, 'form_key=' + encodeURIComponent(formKey)).then(function (data) {
+                busy(updateBtn, false, '<?= $esc->escapeJs(__('Update Order to Match')) ?>');
+                applyResult(data);
+                showMessage(data.message || '', data.success ? (data.mismatch ? 'warning' : 'ok') : 'error');
+            }).catch(function () {
+                busy(updateBtn, false, '<?= $esc->escapeJs(__('Update Order to Match')) ?>');
+                showMessage('<?= $esc->escapeJs(__('The order could not be updated. Please try again.')) ?>', false);
+            });
+        });
+    }
+})();
+</script>
 <?php endif; ?>
 
-<?php echo $block->getChildHtml() ?>
+<style>
+    /* Payflex brand palette — light purple surface with a deeper purple accent. */
+    .payflex-info {
+        --payflex-purple: #6a4bbc;
+        --payflex-purple-dark: #543a99;
+        --payflex-purple-light: #efeafb;
+        --payflex-purple-border: #d9cef2;
+        border: 1px solid var(--payflex-purple-border);
+        border-radius: 4px;
+        overflow: hidden;
+        max-width: 520px;
+    }
+    .payflex-info__header {
+        display: flex;
+        align-items: center;
+        padding: 14px 16px;
+        background: var(--payflex-purple-light);
+        border-bottom: 1px solid var(--payflex-purple-border);
+    }
+    .payflex-info__logo { height: 22px; width: auto; display: block; }
+    .payflex-info__tabs {
+        display: flex;
+        gap: 4px;
+        padding: 0 12px;
+        background: var(--payflex-purple-light);
+        border-bottom: 1px solid var(--payflex-purple-border);
+    }
+    .payflex-info__tab {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        padding: 10px 14px;
+        margin: 0;
+        cursor: pointer;
+        font-size: 1.3rem;
+        color: var(--payflex-purple-dark);
+        border-bottom: 3px solid transparent;
+    }
+    .payflex-info__tab:hover { color: var(--payflex-purple); }
+    .payflex-info__tab.is-active {
+        font-weight: 600;
+        color: var(--payflex-purple);
+        border-bottom-color: var(--payflex-purple);
+    }
+    .payflex-info__panel { display: none; padding: 16px; }
+    .payflex-info__panel.is-active { display: block; }
+    .payflex-info__hint {
+        margin: 0 0 12px;
+        color: #666;
+        font-size: 1.2rem;
+        line-height: 1.4;
+    }
+    .payflex-info__td--mono {
+        font-family: "Source Code Pro", Menlo, Consolas, monospace;
+        font-weight: 600;
+        word-break: break-all;
+    }
+    .payflex-info__status-panel {
+        margin: 0 0 14px;
+        padding: 12px;
+        border: 1px solid #e3e3e3;
+        border-radius: 3px;
+        background: #fcfcfc;
+    }
+    .payflex-info__status-line { margin-bottom: 6px; }
+    .payflex-info__status-line:last-child { margin-bottom: 0; }
+    .payflex-info__status-key {
+        display: inline-block;
+        min-width: 150px;
+        color: #555;
+    }
+    .payflex-info__checked-at { color: #777; font-size: 1.2rem; }
+    .payflex-info__actions {
+        margin-top: 4px;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .payflex-info__actions .action-primary {
+        background: var(--payflex-purple);
+        border-color: var(--payflex-purple);
+    }
+    .payflex-info__actions .action-primary:hover {
+        background: var(--payflex-purple-dark);
+        border-color: var(--payflex-purple-dark);
+    }
+    .payflex-info__message {
+        margin-top: 10px;
+        padding: 8px 10px;
+        border-radius: 3px;
+        font-size: 1.2rem;
+    }
+    .payflex-info__message--ok { background: #d4edda; color: #155724; }
+    .payflex-info__message--warning { background: #fff3cd; color: #856404; }
+    .payflex-info__message--error { background: #f8d7da; color: #721c24; }
+    .payflex-info__table { width: 100%; margin-bottom: 12px; }
+    .payflex-info__th {
+        text-align: left;
+        padding-right: 16px;
+        white-space: nowrap;
+        vertical-align: top;
+        color: #555;
+    }
+    .payflex-info__td { word-break: break-word; }
+    .payflex-info__table--extra { opacity: .9; }
+    .payflex-status {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    .payflex-status--approved { background: #d4edda; color: #155724; }
+    .payflex-status--declined { background: #f8d7da; color: #721c24; }
+    .payflex-status--pending  { background: #fff3cd; color: #856404; }
+    .payflex-status--refunded {
+        margin-left: 6px;
+        background: #e2e3e5;
+        color: #383d41;
+        border: 1px solid #c8cbcf;
+    }
+    .payflex-info__refunds { margin-bottom: 12px; }
+    .payflex-info__refunds-title {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 600;
+        color: #555;
+    }
+    .payflex-info__empty { color: #777; font-style: italic; }
+</style>

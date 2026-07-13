@@ -102,6 +102,14 @@ class UrlCreator
             $info["merchantReference"] = $quote->getReservedOrderId();
             $info["amount"]            = (string)$quote->getBaseGrandTotal();
             $info["currency"]          = (string)$quote->getBaseCurrencyCode();
+
+            // Record the plugin version in use at placement time, for support/debugging.
+            $moduleInfo = $this->_objectManager
+                ->get("\Magento\Framework\Module\ModuleListInterface")
+                ->getOne("Payflex_Gateway");
+            if (isset($moduleInfo["setup_version"])) {
+                $info["payflex_module_version"] = $moduleInfo["setup_version"];
+            }
         }
         $quotePayment->setAdditionalInformation($info);
         $quotePayment->save();
