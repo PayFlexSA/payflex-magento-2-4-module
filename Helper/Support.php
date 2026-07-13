@@ -429,18 +429,30 @@ class Support extends AbstractHelper
 
     public function get_payflex_install_type()
     {
-        $isComposerInstall = false;
+        $magento_base_path = $this->objectManager->get('Magento\Framework\App\Filesystem\DirectoryList')->getRoot();
 
+        // The active/registered module path (whichever copy won registration).
         // If it's a composer install, this module wouldn't be in the app/code directory, it would be in the vendor directory.
         $modulePath = $this->objectManager->get('Magento\Framework\Module\Dir')->getDir('Payflex_Gateway');
 
-        if (strpos($modulePath, 'vendor/payflex') !== false) $isComposerInstall = true;
+        $isComposerInstall = strpos($modulePath, 'vendor/payflex') !== false;
 
-        $magento_base_path = $this->objectManager->get('Magento\Framework\App\Filesystem\DirectoryList')->getRoot();
-        
         $moduleRelPath = str_replace($magento_base_path, '', $modulePath);
 
         $install_directory = ' ('.$moduleRelPath.')';
+
+        // Detect a duplicate install: the module physically present in BOTH
+        // vendor/ (Composer) and app/code/ (manual). Only one is ever registered
+        // (registration.php guards against double-registration), so we check the
+        // filesystem directly rather than relying on the single registered path.
+        $appCodeExists = file_exists($magento_base_path . '/app/code/Payflex/Gateway/registration.php');
+        $vendorExists  = file_exists($magento_base_path . '/vendor/payflex/magento2-gateway/registration.php');
+
+        if ($appCodeExists && $vendorExists) {
+            return '<span style="color:#e02b27;font-weight:600;">⚠ Duplicate install detected</span> — active: '
+                . ($isComposerInstall ? 'Composer' : 'Manual') . $install_directory
+                . '. Both <code>vendor/payflex/magento2-gateway</code> and <code>app/code/Payflex/Gateway</code> are present; remove the inactive copy to avoid load conflicts.';
+        }
 
         return $isComposerInstall ? 'Composer'.$install_directory : 'Manual'.$install_directory;
     }

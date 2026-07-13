@@ -10,10 +10,13 @@ The Payflex Magento 2.4 Gateway plugin integrates Payflex with your Magento stor
 - Magento 2.4.6
 - Magento 2.4.7
 - Magento 2.4.8
+- Magento 2.4.9
 
 ## Installation Steps
 
 Follow these steps to install the Payflex Gateway plugin:
+
+> ⚠️ **Choose one installation method — 1a *or* 1b, not both.** Installing via Composer (1b) while a copy also exists in `app/code/Payflex/Gateway` (1a) registers the module twice and causes load errors. If you are migrating from a manual install to Composer, delete `app/code/Payflex/Gateway` first (and vice versa).
 
 ### 1a. Copy Plugin to Directory (Manual)
 
@@ -22,26 +25,15 @@ Follow these steps to install the Payflex Gateway plugin:
 
 ### 1b. Copy Plugin to Directory (Composer)
 
-Add the following to your `composer.json`:
-
-```json
-{
-   "repositories": [
-      {
-         "type": "vcs",
-         "url": "https://github.com/PayFlexSA/payflex-magento-2-4-module"
-      }
-   ]
-}
-```
-
-Then run:
+The package is published on [Packagist](https://packagist.org/packages/payflex/magento2-gateway), so no extra repository configuration is needed. From your Magento root directory, run:
 
 ```bash
-composer require payflex/magento2-gateway:^2.0
+composer require "payflex/magento2-gateway:^2.0"
 ```
 
-The `^2.0` constraint installs the latest **tagged stable release** (e.g. `v2.0.2`), not the `master` branch. Running `composer update payflex/magento2-gateway` later pulls the newest `2.x` release. Omitting the constraint (a bare `composer require payflex/magento2-gateway`) can resolve to the `dev-master` branch, which is not recommended.
+The `^2.0` constraint installs the latest **tagged stable release** (e.g. `2.0.3`), not the development branch. Running `composer update payflex/magento2-gateway` later pulls the newest `2.x` release. Omitting the constraint (a bare `composer require payflex/magento2-gateway`) can resolve to the `dev-main` branch, which is not recommended.
+
+> **Note:** Quote the constraint (`"payflex/magento2-gateway:^2.0"`) as shown — on Windows `cmd`, an unquoted `^` is an escape character and will mangle the version. If Composer prompts for GitHub credentials, generate a personal access token as instructed.
 
 ### 2. Run Magento Setup Commands
 
