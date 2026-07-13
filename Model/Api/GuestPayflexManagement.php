@@ -53,7 +53,7 @@ class GuestPayflexManagement implements \Payflex\Gateway\Api\GuestPayflexManagem
     		$cartId, 
     		$email, 
     		\Magento\Quote\Api\Data\PaymentInterface $method, 
-    		\Magento\Quote\Api\Data\AddressInterface $billingAddress = null
+    		?\Magento\Quote\Api\Data\AddressInterface $billingAddress = null
     ) {
         $this->_logger->info(__METHOD__. " cartId:{$cartId} guestEmail:{$email}");
         // Create payflex redirect url.

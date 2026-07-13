@@ -36,7 +36,7 @@ class PayflexManagement implements \Payflex\Gateway\Api\PayflexManagementInterfa
     /**
      * {@inheritDoc}
      */
-    public function set($cartId, \Magento\Quote\Api\Data\PaymentInterface $method, \Magento\Quote\Api\Data\AddressInterface $billingAddress = null)
+    public function set($cartId, \Magento\Quote\Api\Data\PaymentInterface $method, ?\Magento\Quote\Api\Data\AddressInterface $billingAddress = null)
     {
         $this->_logger->info(__METHOD__. " cartId:{$cartId}");
         

@@ -45,7 +45,7 @@ class PaymentHelper
 	    $this->_communication = $communication;
 	}
 
-	public function isAvailable(\Magento\Quote\Api\Data\CartInterface $quote = null)
+	public function isAvailable(?\Magento\Quote\Api\Data\CartInterface $quote = null)
 	{
 	    $this->_logger->info(__METHOD__);
 	    if ($quote != null){

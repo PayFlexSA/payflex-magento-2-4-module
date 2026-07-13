@@ -149,7 +149,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         return $this;
     }
 
-    public function isAvailable(\Magento\Quote\Api\Data\CartInterface $quote = null)
+    public function isAvailable(?\Magento\Quote\Api\Data\CartInterface $quote = null)
     {
         $this->_logger->info(__METHOD__);
         return $this->_paymentHelper->isAvailable($quote);

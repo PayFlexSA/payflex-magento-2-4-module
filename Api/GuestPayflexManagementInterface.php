@@ -20,5 +20,5 @@ interface GuestPayflexManagementInterface
      * @throws \Magento\Framework\Exception\State\InvalidTransitionException The billing or shipping address
      * is not set, or the specified payment method is not available.
      */
-    public function set($cartId, $email, \Magento\Quote\Api\Data\PaymentInterface $method, \Magento\Quote\Api\Data\AddressInterface $billingAddress = null);
+    public function set($cartId, $email, \Magento\Quote\Api\Data\PaymentInterface $method, ?\Magento\Quote\Api\Data\AddressInterface $billingAddress = null);
 }

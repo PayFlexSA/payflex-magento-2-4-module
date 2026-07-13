@@ -98,12 +98,13 @@ class Configuration extends AbstractHelper
         
         return $state;
     }
+
+    /**
+     * Check that the version passed into $min_version equal to or higher than the magento version that's running.
+     */
     public function versionCheck($min_version, $max_version = false)
     {
         $version = $this->getMagentoVersion();
-        
-        # Remove the patch version
-        $version = preg_replace('/\.\d+\.\d+/', '', $version);
 
         if (version_compare($version, $min_version, '<'))                 return false;
         if ($max_version && version_compare($version, $max_version, '>')) return false;

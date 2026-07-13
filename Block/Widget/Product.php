@@ -37,7 +37,7 @@ class Product extends \Magento\Framework\View\Element\Template
         $this->_logger->info('Product:'.__METHOD__);
     }
 
-    public function getProductWidgetHtml(\Magento\Catalog\Model\Product $product = null)
+    public function getProductWidgetHtml(?\Magento\Catalog\Model\Product $product = null)
     {
         if (!$product){
             if (!($product = $this->_coreRegistry->registry('product'))) {

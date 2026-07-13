@@ -276,7 +276,7 @@ class Communication extends AbstractHelper
         // $url = $this->_configuration->getPayflexAuthTokenEndpoint($storeId);
 
         try {
-            # Check if magento version is 2.4.
+            # Check if magento version is 2.4.6 or lower
             if(!$this->_configuration->versionCheck('2.4.6'))
             {
                 /** @disregard P1012 */
