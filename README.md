@@ -38,8 +38,10 @@ Add the following to your `composer.json`:
 Then run:
 
 ```bash
-composer require payflex/magento2-gateway
+composer require payflex/magento2-gateway:^2.0
 ```
+
+The `^2.0` constraint installs the latest **tagged stable release** (e.g. `v2.0.2`), not the `master` branch. Running `composer update payflex/magento2-gateway` later pulls the newest `2.x` release. Omitting the constraint (a bare `composer require payflex/magento2-gateway`) can resolve to the `dev-master` branch, which is not recommended.
 
 ### 2. Run Magento Setup Commands
 
