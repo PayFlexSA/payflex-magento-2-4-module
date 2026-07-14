@@ -2,44 +2,40 @@
 
 namespace Payflex\Gateway\Cron;
 
+use Magento\Store\Model\StoreManagerInterface;
+use Payflex\Gateway\Helper\PaymentUtil;
+use Payflex\Gateway\Model\ConfigurationFactory;
+
+/**
+ * Refreshes the per-store merchant configuration (spend limits, refund flag)
+ * from the Payflex API.
+ */
 class MerchantConfiguration
 {
-    /**
-     *
-     * @var \Magento\Framework\App\ObjectManager
-     */
-    protected $_objectManager;
+    /** @var StoreManagerInterface */
+    private $storeManager;
 
-    /**
-     * @var \Magento\Store\Model\StoreManagerInterface
-     */
-    protected $_storeManager;
+    /** @var PaymentUtil */
+    private $paymentUtil;
 
-    /**
-     * @var mixed $_paymentUtil
-     */
-    protected $_paymentUtil;
+    /** @var ConfigurationFactory */
+    private $configurationFactory;
 
-    /**
-     * MerchantConfiguration Cron constructor.
-     * @param \Magento\Store\Model\StoreManagerInterface $storeManager
-     */
     public function __construct(
-        \Magento\Store\Model\StoreManagerInterface $storeManager
+        StoreManagerInterface $storeManager,
+        PaymentUtil $paymentUtil,
+        ConfigurationFactory $configurationFactory
     ) {
-        $this->_objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_storeManager = $storeManager;
-        $this->_paymentUtil = $this->_objectManager->get("\Payflex\Gateway\Helper\PaymentUtil");
+        $this->storeManager = $storeManager;
+        $this->paymentUtil = $paymentUtil;
+        $this->configurationFactory = $configurationFactory;
     }
 
     public function execute()
     {
-        $stores = $this->_storeManager->getStores();
-        foreach (array_keys($stores) as $storeId){
-            $merchantConfigurationManager = $this->_objectManager->create("\Payflex\Gateway\Model\Configuration");
-            $configurationModel = $merchantConfigurationManager->load($storeId, "store_id");
-            $this->_paymentUtil->refreshMerchantConfiguration($configurationModel, $storeId);
+        foreach (array_keys($this->storeManager->getStores()) as $storeId) {
+            $configurationModel = $this->configurationFactory->create()->load($storeId, "store_id");
+            $this->paymentUtil->refreshMerchantConfiguration($configurationModel, $storeId);
         }
     }
-
 }

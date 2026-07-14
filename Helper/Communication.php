@@ -4,96 +4,106 @@ namespace Payflex\Gateway\Helper;
 
 use Magento\Framework\App\Helper\AbstractHelper;
 use Magento\Framework\App\Helper\Context;
+use Magento\Framework\Stdlib\DateTime\DateTime;
+use Magento\Store\Model\StoreManagerInterface;
+use Payflex\Gateway\Logger\PayflexLogger;
+use Payflex\Gateway\Model\RequestAccessTokenFactory;
 
+/**
+ * Low-level Payflex API client: OAuth token handling and the raw HTTP calls to
+ * the hosted-checkout, transaction-status, refund and configuration endpoints.
+ */
 class Communication extends AbstractHelper
 {
-    private $_accessToken;
-
+    /**
+     * @var DateTime
+     */
     private $_date;
 
     /**
-     *
-     * @var \Payflex\Gateway\Helper\Configuration
+     * @var Configuration
      */
     private $_configuration;
-    /**
-     * @var DirectoryList
-     */
-    private $directoryList;
-    private $storeManager;
-    public  $environments;
 
+    /**
+     * @var StoreManagerInterface
+     */
+    private $storeManager;
+
+    /**
+     * @var RequestAccessTokenFactory
+     */
+    private $accessTokenFactory;
+
+    /**
+     * Hard-coded Payflex environments. Kept public for the admin support page.
+     *
+     * @var array
+     */
+    public $environments;
+
+    /**
+     * In-memory cache of merchant configuration, keyed by store id.
+     *
+     * @var array
+     */
     private $merchantConfiguration = [];
 
-
-    public function __construct(Context $context, \Magento\Framework\Stdlib\DateTime\DateTime $date)
-    {
+    public function __construct(
+        Context $context,
+        DateTime $date,
+        PayflexLogger $logger,
+        Configuration $configuration,
+        StoreManagerInterface $storeManager,
+        RequestAccessTokenFactory $accessTokenFactory
+    ) {
         parent::__construct($context);
-        $objectManager        = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_logger        = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_configuration = $objectManager->get("\Payflex\Gateway\Helper\Configuration");
-        $this->directoryList  = $objectManager->get("Magento\Framework\App\Filesystem\DirectoryList");
-
-        $this->_logger->info('Communication : '.__METHOD__);
-        $this->_accessToken = null;
-        $this->_date        = $date;
-        $this->storeManager = $objectManager->get("\Magento\Store\Model\StoreManagerInterface");
+        $this->_logger = $logger;
+        $this->_configuration = $configuration;
+        $this->storeManager = $storeManager;
+        $this->accessTokenFactory = $accessTokenFactory;
+        $this->_date = $date;
 
         $this->environments = [
-            'develop' => array(
+            'develop' => [
                 "name"          => "Sandbox Test",
                 "api_url"       => "https://api.uat.payflex.co.za",
                 "auth_url"      => "https://auth-uat.payflex.co.za/auth/merchant",
                 "web_url"       => "https://api.uat.payflex.co.za",
                 "auth_audience" => "https://auth-dev.payflex.co.za",
-            ),
-            'production' => 	array(
+            ],
+            'production' => [
                 "name"          => "Production",
                 "api_url"       => "https://api.payflex.co.za",
                 "auth_url"      => "https://auth.payflex.co.za/auth/merchant",
                 "web_url"       => "https://api.payflex.co.za",
                 "auth_audience" => "https://auth-production.payflex.co.za",
-            )
+            ],
         ];
     }
+
     public function getPayflexPage($requestData, $storeId = null)
     {
         $this->_logger->info(__METHOD__);
-        $storeId = $this->storeManager->getStore()->getId();
+        if ($storeId === null) {
+            $storeId = $this->storeManager->getStore()->getId();
+        }
         $orderIncrementId = $requestData['merchantReference'];
         $requestData['merchant']['redirectConfirmUrl'] = $this->_getUrl('payflex/order/success', ['_secure' => true, '_nosid' => true, 'mage_order_id' => $orderIncrementId]);
         $requestData['merchant']['redirectCancelUrl'] = $this->_getUrl('payflex/order/fail', ['_secure' => true, '_nosid' => true, 'mage_order_id' => $orderIncrementId]);
         $requestData = json_encode($requestData);
 
-        $this->_logger->info(__METHOD__ . " request: ". $requestData);
+        $this->_logger->info(__METHOD__ . " request: " . $requestData);
         $url = $this->_getApiUrl('/order/productSelect', $storeId);
         $header = ['Content-Type: application/json', 'Authorization: Bearer ' . $this->getAccessToken($storeId)];
 
-        /**
-         * If magento version is under 2.4.6 then use ZendClient::POST. 2.4.6 and above use Laminas\Http\Request::METHOD_POST
-         * If you have linting enabled, you will probably see an error with one of the two lines below.
-         * This is because the linter is not aware of the versionCheck method and will assume the method does not exist.
-        */ 
-        if(!$this->_configuration->versionCheck('2.4.6'))
-        {
-            /** @disregard P1012 */
-            $post = \Magento\Framework\HTTP\ZendClient::POST;
-        }
-        else{
-            /** @disregard P1012 */
-            $post = \Laminas\Http\Request::METHOD_POST;
-        }
-
-        $result = $this->_sendRequest($url, $header, [], $post, $requestData);
-        $this->_logger->info(__METHOD__ . " getPayflexPage response: ". $result['response']);
+        $result = $this->sendRequest($url, $header, [], 'POST', $requestData);
+        $this->_logger->info(__METHOD__ . " getPayflexPage response: " . $result['response']);
         return json_decode($result['response'], true);
     }
 
     public function getEnvironments($storeId = null)
     {
-        if($storeId == null) $storeId = $this->storeManager->getStore()->getId();
-
-        // Return all environment details
         return $this->environments;
     }
 
@@ -101,34 +111,30 @@ class Communication extends AbstractHelper
      * Gets the value of a field of the current environment.
      * For example, getCurrentEnvironment('api_url') will return the api_url of the current environment.
      * If field_name is 'key', it will return the key of the current environment (eg: develop or production).
-     * 
+     *
      * @param string   $field_name - the name of the field to get (eg: api_url, auth_url, name, key)
      * @param int|null $storeId - the store ID to get the environment for. If null, it will use the current store.
-     * 
+     *
      * @return string - the value of the field for the current environment, or 'Unknown' if not found.
      */
     public function getCurrentEnvironment($field_name = 'name', $storeId = null)
     {
         $environment = 'Unknown';
-        $environemnt_key_position = 0;
-        if($storeId == null) $storeId = $this->storeManager->getStore()->getId();
+        if ($storeId === null) {
+            $storeId = $this->storeManager->getStore()->getId();
+        }
 
         // getPayflexEnvironment only returns an array key number, not the actual key
         $environemnt_key_position = $this->_configuration->getPayflexEnvironment($storeId);
 
-        $indexed_environments = array_values($this->environments) ?? null;
+        $indexed_environments = array_values($this->environments);
 
-        if($indexed_environments !== null)
-        {
-            $current_environment = $indexed_environments[$environemnt_key_position] ?? 'Unknown';
-            $environment         = $current_environment[$field_name] ?? 'Unknown';
+        $current_environment = $indexed_environments[$environemnt_key_position] ?? 'Unknown';
+        $environment         = $current_environment[$field_name] ?? 'Unknown';
 
-            if($field_name == 'key')
-            {
-                $environment_keys = array_keys($this->environments) ?? null;
-                $environment = $environment_keys[$environemnt_key_position] ?? 'Unknown';
-            }
-            
+        if ($field_name == 'key') {
+            $environment_keys = array_keys($this->environments);
+            $environment = $environment_keys[$environemnt_key_position] ?? 'Unknown';
         }
 
         return $environment;
@@ -136,53 +142,47 @@ class Communication extends AbstractHelper
 
     public function getTransactionStatus($payflexId, $storeId = null)
     {
-        if($storeId == null){
+        if ($storeId === null) {
             $storeId = $this->storeManager->getStore()->getId();
         }
         $this->_logger->info(__METHOD__ . " payflexId:{$payflexId} storeId:{$storeId}");
-        $payflexUrl = $this->_getApiUrl('/order/'. $payflexId, $storeId);
+        $payflexUrl = $this->_getApiUrl('/order/' . $payflexId, $storeId);
         $header = ['Authorization: Bearer ' . $this->getAccessToken($storeId)];
-        $result = $this->_sendRequest($payflexUrl, $header);
+        $result = $this->sendRequest($payflexUrl, $header);
         return json_decode($result['response'], true);
     }
 
     public function refund($orderIncrementId, $payflexId, $amount, $storeId = null)
     {
-        $storeId = $this->storeManager->getStore()->getId();
+        if ($storeId === null) {
+            $storeId = $this->storeManager->getStore()->getId();
+        }
         $this->_logger->info(__METHOD__ . "order:{$orderIncrementId} payflexId:{$payflexId} storeId:{$storeId}");
 
         $requestData = json_encode([
             'amount'                  => $amount,
             'isPlugin'                => true,
-            'merchantRefundReference' => $orderIncrementId.'-'.$amount.' '.$this->_date->date(),
+            'merchantRefundReference' => $orderIncrementId . '-' . $amount . ' ' . $this->_date->date(),
         ]);
-        $this->_logger->info(__METHOD__ . " request: ". $requestData);
+        $this->_logger->info(__METHOD__ . " request: " . $requestData);
         $payflexUrl = $this->_getApiUrl('/order/' . $payflexId . '/refund/', $storeId);
 
         $header = ['Content-Type: application/json', 'Authorization: Bearer ' . $this->getAccessToken($storeId)];
 
-        if(!$this->_configuration->versionCheck('2.4.6'))
-        {
-            /** @disregard P1012 */
-            $post = \Magento\Framework\HTTP\ZendClient::POST;
-        }else{
-            /** @disregard P1012 */
-            $post = \Laminas\Http\Request::METHOD_POST;
-        }
-
-        $result = $this->_sendRequest($payflexUrl, $header, [],$post, $requestData);
-        return $result;
+        return $this->sendRequest($payflexUrl, $header, [], 'POST', $requestData);
     }
 
     public function getMerchantConfiguration($storeId)
     {
-        if(isset($this->merchantConfiguration[$storeId])) return $this->merchantConfiguration[$storeId];
-        
+        if (isset($this->merchantConfiguration[$storeId])) {
+            return $this->merchantConfiguration[$storeId];
+        }
+
         $this->_logger->info(__METHOD__ . "storeId:{$storeId}");
         $payflexUrl = $this->_getApiUrl('/configuration', $storeId);
 
         $header = ['Content-Type: application/json', 'Authorization: Bearer ' . $this->getAccessToken($storeId)];
-        $result = $this->_sendRequest($payflexUrl, $header);
+        $result = $this->sendRequest($payflexUrl, $header);
 
         $this->merchantConfiguration[$storeId] = json_decode($result['response'], true);
 
@@ -191,78 +191,64 @@ class Communication extends AbstractHelper
 
     public function forceRefeshToken($storeId = null)
     {
-        $this->_logger->info(__METHOD__. " Refreshing Token");
+        $this->_logger->info(__METHOD__ . " Refreshing Token");
         $this->getAccessToken($storeId, true);
     }
 
     public function getAccessToken($storeId = null, $force = false)
     {
-        if($storeId == null){
+        if ($storeId === null) {
             $storeId = $this->storeManager->getStore()->getId();
         }
 
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $storedAccessToken = $objectManager->create("\Payflex\Gateway\Model\RequestAccessToken");
-        $storedAccessTokenModel = $storedAccessToken->load($storeId, "store_id");
+        $storedAccessTokenModel = $this->accessTokenFactory->create()->load($storeId, "store_id");
 
-        if($force)
-        {
-            // Delete Existing Entry
+        if ($force) {
             $storedAccessTokenModel->delete();
         }
 
         $date_now = time();
         $expireDate = $storedAccessTokenModel->getExpire();
-        if ( $expireDate != '' && $date_now < strtotime($expireDate) && !$force && !empty($storedAccessTokenModel->getToken())) {
-            $this->_logger->info('Stored Token from DB : '.$storedAccessTokenModel->getToken());
+        if ($expireDate != '' && $date_now < strtotime($expireDate) && !$force && !empty($storedAccessTokenModel->getToken())) {
             return $storedAccessTokenModel->getToken();
-        }else{
-            //   return fresh token to DB
-            $freshToken = $this->getTokenApiCall($storeId);
-            $newtimestamp = strtotime( date("Y-m-d H:i:s") .' + 3500 second');
-            $expireTime =  date('Y-m-d H:i:s', $newtimestamp);
-
-            if($expireDate != ''){
-                // Update Existing Entry
-                $storedAccessTokenModel->setToken( $freshToken );
-                $storedAccessTokenModel->setExpire($expireTime);
-                $storedAccessTokenModel->save();
-                
-                // Update Existing Entry
-            }else{
-
-                // Insert New Entry
-                    $this->_logger->info("Get fresh token from Auth0". $freshToken);
-                    $requestTokenModel = $objectManager->create("\Payflex\Gateway\Model\RequestAccessToken");
-                    $requestTokenModel->setData(
-                        array(
-                            "store_id"=> $storeId,
-                            "token" =>  $freshToken,
-                            "expire" => $expireTime
-                        
-                        ));
-                    $requestTokenModel->save();
-                // Insert New Entry
-            }
-            
-            return $freshToken;
-            //return fresh token to DB
         }
+
+        // Fetch a fresh token and persist it.
+        $freshToken = $this->getTokenApiCall($storeId);
+        $newtimestamp = strtotime(date("Y-m-d H:i:s") . ' + 3500 second');
+        $expireTime = date('Y-m-d H:i:s', $newtimestamp);
+
+        if ($expireDate != '') {
+            // Update existing entry
+            $storedAccessTokenModel->setToken($freshToken);
+            $storedAccessTokenModel->setExpire($expireTime);
+            $storedAccessTokenModel->save();
+        } else {
+            // Insert new entry
+            $requestTokenModel = $this->accessTokenFactory->create();
+            $requestTokenModel->setData([
+                "store_id" => $storeId,
+                "token"    => $freshToken,
+                "expire"   => $expireTime,
+            ]);
+            $requestTokenModel->save();
+        }
+
+        return $freshToken;
     }
-    protected function getTokenApiCall($storeId){
-        $this->_logger->info('getTokenApiCall'.$storeId);
-		$AuthURL  = '';
-		$Audience = '';
-        /*** 
-            Use auth_url and auth_audience from produciton if selected envrionment is producitonelse use it from develp.
-        ***/   
-		if($this->_configuration->getPayflexEnvironment($storeId)) {
-			$AuthURL  = $this->environments['production']['auth_url'];
-			$Audience = $this->environments['production']['auth_audience'];
-		} else {
-			$AuthURL  = $this->environments['develop']['auth_url'];
-			$Audience = $this->environments['develop']['auth_audience'];
-		}
+
+    protected function getTokenApiCall($storeId)
+    {
+        $this->_logger->info('getTokenApiCall' . $storeId);
+
+        // Use the auth details of the selected environment (production vs sandbox).
+        if ($this->_configuration->getPayflexEnvironment($storeId)) {
+            $AuthURL  = $this->environments['production']['auth_url'];
+            $Audience = $this->environments['production']['auth_audience'];
+        } else {
+            $AuthURL  = $this->environments['develop']['auth_url'];
+            $Audience = $this->environments['develop']['auth_audience'];
+        }
         $accessTokenParam = [
             'grant_type'    => 'client_credentials',
             'client_id'     => $this->_configuration->getPayflexClientId($storeId),
@@ -270,75 +256,56 @@ class Communication extends AbstractHelper
             'audience'      => $Audience,
         ];
 
-        $headers = [
-            'Content-Type: application/json'
-        ];
-        // $url = $this->_configuration->getPayflexAuthTokenEndpoint($storeId);
+        $headers = ['Content-Type: application/json'];
 
         try {
-            # Check if magento version is 2.4.6 or lower
-            if(!$this->_configuration->versionCheck('2.4.6'))
-            {
-                /** @disregard P1012 */
-                $post = \Magento\Framework\HTTP\ZendClient::POST;
-            }else{
-                /** @disregard P1012 */
-                $post = \Laminas\Http\Request::METHOD_POST;
-            }
-            $accessTokenResult = $this->_sendRequest($AuthURL, $headers, [], $post, json_encode($accessTokenParam));
+            $accessTokenResult = $this->sendRequest($AuthURL, $headers, [], 'POST', json_encode($accessTokenParam));
             $response = json_decode($accessTokenResult['response'], true);
-            $this->_logger->info('getAccessTokencalled');
         } catch (\Exception $ex) {
             $this->_logger->error($ex->getMessage());
             return false;
         }
         if (!$response || !isset($response['access_token'])) {
-            $errorMessage = 'Error getting access token from Payflex';
-            // throw new \Magento\Framework\Exception\PaymentException(__($errorMessage));
             return false;
         }
         return $response['access_token'];
     }
+
     protected function _getApiUrl($path, $storeId = null)
     {
-        if($this->_configuration->getPayflexEnvironment($storeId)) {
-			$baseUrl = $this->environments['production']['api_url'];
-		}else{
+        if ($this->_configuration->getPayflexEnvironment($storeId)) {
+            $baseUrl = $this->environments['production']['api_url'];
+        } else {
             $baseUrl = $this->environments['develop']['api_url'];
         }
-        // $baseUrl = $this->_configuration->getPayflexApiEndpoint($storeId);
-        $apiUrl = rtrim($baseUrl, '/') . '/' . trim($path, '/');
-        return $apiUrl;
+        return rtrim($baseUrl, '/') . '/' . trim($path, '/');
     }
 
-    private function _sendRequest($url, $header = [], $params = [], $method = '', $postBody = null)
+    /**
+     * Perform the actual HTTP request via cURL.
+     *
+     * Kept as a single protected method so it can be substituted in unit tests
+     * and so the transport can be swapped for the framework HTTP client later
+     * without touching the callers above.
+     */
+    protected function sendRequest($url, $header = [], $params = [], $method = 'GET', $postBody = null)
     {
-        if($method == ''){
-            if(!$this->_configuration->versionCheck('2.4.6'))
-            {
-                /** @disregard P1012 */
-                $method = \Magento\Framework\HTTP\ZendClient::GET;
-            }
-            else{
-                /** @disregard P1012 */
-                $method = \Laminas\Http\Request::METHOD_GET;
-            }
-        }
         $this->_logger->info(__METHOD__ . " postUrl: {$url}");
         $ch = curl_init();
         switch ($method) {
             case "POST":
                 curl_setopt($ch, CURLOPT_POST, 1);
-
-                if ($postBody)
+                if ($postBody) {
                     curl_setopt($ch, CURLOPT_POSTFIELDS, $postBody);
+                }
                 break;
             case "PUT":
                 curl_setopt($ch, CURLOPT_PUT, 1);
                 break;
             default:
-                if (!empty($params))
+                if (!empty($params)) {
                     $url = sprintf("%s?%s", $url, http_build_query($params));
+                }
         }
         curl_setopt($ch, CURLOPT_URL, $url);
 
@@ -355,7 +322,7 @@ class Communication extends AbstractHelper
         $response = curl_exec($ch);
         $errorNo = curl_errno($ch);
         $errorMessage = '';
-        if($errorNo){
+        if ($errorNo) {
             $errorMessage = " Error:" . curl_error($ch) . " Error Code:" . curl_errno($ch);
             $this->_logger->critical(__METHOD__ . $errorMessage);
         }

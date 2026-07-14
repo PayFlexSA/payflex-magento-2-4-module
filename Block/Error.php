@@ -7,14 +7,13 @@ use Magento\Framework\View\Element\Template\Context;
 class Error extends \Magento\Framework\View\Element\Template
 {
 
-    public function __construct(Context $context, array $data = [])
-    {
+    public function __construct(
+        Context $context,
+        \Payflex\Gateway\Logger\PayflexLogger $logger,
+        array $data = []
+    ) {
         parent::__construct($context, $data);
-
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_logger = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-
-        $this->_logger->info('Error:'.__METHOD__);
+        $this->_logger = $logger;
     }
 
     protected function _prepareLayout()

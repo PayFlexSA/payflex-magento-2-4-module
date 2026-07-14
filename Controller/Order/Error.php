@@ -1,29 +1,27 @@
 <?php
 namespace Payflex\Gateway\Controller\Order;
 
-class Error extends \Magento\Framework\App\Action\Action
+use Magento\Framework\App\Action\Action;
+use Magento\Framework\App\Action\Context;
+use Magento\Framework\View\Result\PageFactory;
+use Payflex\Gateway\Logger\PayflexLogger;
+
+class Error extends Action
 {
-    /**
-     *
-     * @var \Magento\Framework\View\Result\PageFactory
-     */
+    /** @var PageFactory */
     private $resultPageFactory;
-    
-    /**
-     *
-     * @var \Payflex\Gateway\Logger\PayflexLogger
-     */
+
+    /** @var PayflexLogger */
     private $_logger;
 
     public function __construct(
-        \Magento\Framework\App\Action\Context $context,
-        \Magento\Framework\View\Result\PageFactory $resultPageFactory
-    )
-    {
-        $this->resultPageFactory = $resultPageFactory;
+        Context $context,
+        PageFactory $resultPageFactory,
+        PayflexLogger $logger
+    ) {
         parent::__construct($context);
-        $this->_logger = $this->_objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_logger->info(__METHOD__);
+        $this->resultPageFactory = $resultPageFactory;
+        $this->_logger = $logger;
     }
 
     public function execute()

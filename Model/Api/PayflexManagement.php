@@ -23,14 +23,14 @@ class PayflexManagement implements \Payflex\Gateway\Api\PayflexManagementInterfa
     private $_billingAddressManagement;
 
 
-    public function __construct(\Magento\Quote\Api\BillingAddressManagementInterface $billingAddressManagement)
-    {
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+    public function __construct(
+        \Magento\Quote\Api\BillingAddressManagementInterface $billingAddressManagement,
+        \Payflex\Gateway\Model\Api\ApiPayflexHelper $apiHelper,
+        \Payflex\Gateway\Logger\PayflexLogger $logger
+    ) {
         $this->_billingAddressManagement = $billingAddressManagement;
-        $this->_apiHelper = $objectManager->get("\Payflex\Gateway\Model\Api\ApiPayflexHelper");
-        $this->_logger = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        
-        $this->_logger->info(__METHOD__);
+        $this->_apiHelper = $apiHelper;
+        $this->_logger = $logger;
     }
 
     /**

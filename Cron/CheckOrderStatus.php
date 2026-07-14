@@ -5,12 +5,6 @@ namespace Payflex\Gateway\Cron;
 class CheckOrderStatus
 {
   /**
-   *
-   * @var \Magento\Framework\App\ObjectManager
-   */
-  protected $_objectManager;
-
-  /**
    * @var \Magento\Store\Model\StoreManagerInterface
    */
   protected $_storeManager;

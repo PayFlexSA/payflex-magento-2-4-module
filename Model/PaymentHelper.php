@@ -4,45 +4,41 @@
 
 namespace Payflex\Gateway\Model;
 
+use Payflex\Gateway\Helper\Communication;
+use Payflex\Gateway\Helper\Configuration;
+use Payflex\Gateway\Helper\PaymentUtil;
+use Payflex\Gateway\Logger\PayflexLogger;
+use Payflex\Gateway\Model\RequestTokenFactory;
+
 class PaymentHelper
 {
-    /**
-     *
-     * @var \Payflex\Gateway\Helper\PaymentUtil
-     */
+    /** @var PaymentUtil */
     protected $_paymentUtil;
-    private $_objectManager;
-    /**
-     *
-     * @var \Payflex\Gateway\Helper\Configuration
-     */
+
+    /** @var Configuration */
     protected $_configuration;
 
+    /** @var PayflexLogger */
     protected $_logger;
 
-    /**
-     *
-     * @var \Payflex\Gateway\Helper\Communication
-     */
+    /** @var Communication */
     protected $_communication;
 
-	public function __construct()
-	{
-		$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_logger = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_paymentUtil = $objectManager->get("\Payflex\Gateway\Helper\PaymentUtil");
-        $this->_communication = $objectManager->get("\Payflex\Gateway\Helper\Communication");
-        $this->_objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-		$this->_logger->info(__METHOD__);
-	}
+    /** @var RequestTokenFactory */
+    private $requestTokenFactory;
 
-
-	public function init($configuration, $communication)
-	{
-		$this->_logger->info(__METHOD__);
-
-	    $this->_configuration = $configuration;
-	    $this->_communication = $communication;
+	public function __construct(
+        PayflexLogger $logger,
+        PaymentUtil $paymentUtil,
+        Communication $communication,
+        Configuration $configuration,
+        RequestTokenFactory $requestTokenFactory
+    ) {
+        $this->_logger = $logger;
+        $this->_paymentUtil = $paymentUtil;
+        $this->_communication = $communication;
+        $this->_configuration = $configuration;
+        $this->requestTokenFactory = $requestTokenFactory;
 	}
 
 	public function isAvailable(?\Magento\Quote\Api\Data\CartInterface $quote = null)
@@ -101,8 +97,7 @@ class PaymentHelper
         $this->_logger->info(__METHOD__);
         $info                = $payment->getAdditionalInformation();
         $orderIncrementId    = $payment->getOrder()->getIncrementId();
-        $requestTokenManager = $this->_objectManager->create("\Payflex\Gateway\Model\RequestToken");
-        $requestToken        = $requestTokenManager->load($orderIncrementId, "order_id");
+        $requestToken        = $this->requestTokenFactory->create()->load($orderIncrementId, "order_id");
         $payflexId           = $requestToken->getpayflexId();
         // $payflexId = $this->_paymentUtil->findPayflexOrderForRefund($orderIncrementId, $info);
         $apiResult = $this->_communication->refund($orderIncrementId, $payflexId, $amount, $storeId);

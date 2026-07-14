@@ -1,44 +1,71 @@
 <?php
 namespace Payflex\Gateway\Helper\Payflex;
 
-use \Magento\Framework\Exception\State\InvalidTransitionException;
+use Magento\Catalog\Model\ProductFactory;
+use Magento\Checkout\Model\Session as CheckoutSession;
+use Magento\Framework\DataObject\Factory as DataObjectFactory;
+use Magento\Framework\Exception\State\InvalidTransitionException;
+use Magento\Framework\Module\ModuleListInterface;
+use Payflex\Gateway\Helper\Communication;
+use Payflex\Gateway\Helper\Configuration;
+use Payflex\Gateway\Helper\Support;
+use Payflex\Gateway\Logger\PayflexLogger;
+use Payflex\Gateway\Model\RequestTokenFactory;
 
+/**
+ * Builds the Payflex "create session" request from a quote, calls Payflex to
+ * obtain the hosted-checkout redirect URL, and persists the resulting request
+ * token so the return controllers can verify it later.
+ */
 class UrlCreator
 {
-
-    /**
-     *
-     * @var \Magento\Framework\App\ObjectManager
-     */
-    private $_objectManager;
-
-    /**
-     *
-     * @var \Payflex\Gateway\Logger\PayflexLogger
-     */
+    /** @var PayflexLogger */
     private $_logger;
 
-    /**
-     *
-     * @var \Payflex\Gateway\Helper\Configuration
-     */
-    protected $_configuration;
+    /** @var Configuration */
+    private $_configuration;
 
-    /**
-     *
-     * @var \Payflex\Gateway\Helper\Communication
-     */
-    protected $_communication;
+    /** @var Communication */
+    private $_communication;
 
-    public function __construct()
-    {
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_objectManager = $objectManager;
-        $this->_communication = $objectManager->get("\Payflex\Gateway\Helper\Communication");
-        $this->_logger = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_configuration = $objectManager->get("\Payflex\Gateway\Helper\Configuration");
+    /** @var Support */
+    private $support;
 
-        $this->_logger->info('UrlCreator:'.__METHOD__);
+    /** @var RequestTokenFactory */
+    private $requestTokenFactory;
+
+    /** @var CheckoutSession */
+    private $checkoutSession;
+
+    /** @var ModuleListInterface */
+    private $moduleList;
+
+    /** @var DataObjectFactory */
+    private $dataObjectFactory;
+
+    /** @var ProductFactory */
+    private $productFactory;
+
+    public function __construct(
+        PayflexLogger $logger,
+        Configuration $configuration,
+        Communication $communication,
+        Support $support,
+        RequestTokenFactory $requestTokenFactory,
+        CheckoutSession $checkoutSession,
+        ModuleListInterface $moduleList,
+        DataObjectFactory $dataObjectFactory,
+        ProductFactory $productFactory
+    ) {
+        $this->_logger = $logger;
+        $this->_configuration = $configuration;
+        $this->_communication = $communication;
+        $this->support = $support;
+        $this->requestTokenFactory = $requestTokenFactory;
+        $this->checkoutSession = $checkoutSession;
+        $this->moduleList = $moduleList;
+        $this->dataObjectFactory = $dataObjectFactory;
+        $this->productFactory = $productFactory;
     }
 
     public function CreateUrl(\Magento\Quote\Model\Quote $quote)
@@ -48,52 +75,46 @@ class UrlCreator
 
         try {
             $response = $this->_communication->getPayflexPage($requestData);
-        }catch (\Exception $ex) {
-            $this->_logger->error(__METHOD__.$ex->getMessage());
-            throw new InvalidTransitionException(__('Error in communication with Payflex:'.$ex->getMessage()));
-            return false;
+        } catch (\Exception $ex) {
+            $this->_logger->error(__METHOD__ . $ex->getMessage());
+            throw new InvalidTransitionException(__('Error in communication with Payflex:' . $ex->getMessage()));
         }
 
         if (!$response || empty($response['redirectUrl'])) {
             $error = "Invalid response from Payflex: " . json_encode($response);
             $this->_logger->critical(__METHOD__ . " " . $error);
             throw new InvalidTransitionException(__($error));
-            return false;
         }
 
-       $requestTokenModel = $this->_objectManager->create("\Payflex\Gateway\Model\RequestToken");
+        $requestTokenModel = $this->requestTokenFactory->create();
         $requestToken = $requestTokenModel->load($quote->getReservedOrderId(), "order_id");
-        if($requestToken->getId()){
+        if ($requestToken->getId()) {
             $requestToken->setpayflexId($response['orderId']);
             $requestToken->setUrl($response['redirectUrl']);
             $requestToken->setToken($response['token']);
             $requestToken->setExpire($response['expiryDateTime']);
             $requestToken->save();
-        }else{
-            $requestTokenModel->setData(
-                array(
-                    "token" => $response['token'],
-                    "url" => $response['redirectUrl'],
-                    "expire" => $response['expiryDateTime'],
-                    "order_id" => $quote->getReservedOrderId(),
-                    "payflex_id" => $response['orderId'],
-                ));
-                $requestTokenModel->save();
+        } else {
+            $requestTokenModel->setData([
+                "token"      => $response['token'],
+                "url"        => $response['redirectUrl'],
+                "expire"     => $response['expiryDateTime'],
+                "order_id"   => $quote->getReservedOrderId(),
+                "payflex_id" => $response['orderId'],
+            ]);
+            $requestTokenModel->save();
         }
-        $session = $this->_objectManager->get('\Magento\Checkout\Model\Session');
-        $session->setpayflexQuoteId($quote->getId());
+
+        $this->checkoutSession->setpayflexQuoteId($quote->getId());
 
         //Log the Payflex ID that is received from the API.
         $this->_logger->info(__METHOD__ . " Payflex Order ID: " . $response['orderId']);
 
         //Add the Payflex ID to the quote.
-        $info = []; 
+        $info = [];
         $quotePayment = $quote->getPayment();
-        if (!empty($quotePayment->getAdditionalInformation()))
-        {
-            $quotePaymentAdditionalInfo = $quotePayment->getAdditionalInformation();
-            $source = $this->_objectManager->create("\Magento\Framework\DataObject");
-            $source->setData($quotePaymentAdditionalInfo);
+        if (!empty($quotePayment->getAdditionalInformation())) {
+            $source = $this->dataObjectFactory->create($quotePayment->getAdditionalInformation());
             $info["cartId"]      = $source->getData("cartId");
             $info["guestEmail"]  = $source->getData("guestEmail");
             $info["orderId"]     = $response['orderId'];
@@ -104,16 +125,14 @@ class UrlCreator
             $info["currency"]          = (string)$quote->getBaseCurrencyCode();
 
             // Record the plugin version in use at placement time, for support/debugging.
-            $moduleInfo = $this->_objectManager
-                ->get("\Magento\Framework\Module\ModuleListInterface")
-                ->getOne("Payflex_Gateway");
+            $moduleInfo = $this->moduleList->getOne("Payflex_Gateway");
             if (isset($moduleInfo["setup_version"])) {
                 $info["payflex_module_version"] = $moduleInfo["setup_version"];
             }
         }
         $quotePayment->setAdditionalInformation($info);
         $quotePayment->save();
-        //Continue with the URL creation function.
+
         return (string)$response['redirectUrl'];
     }
 
@@ -124,13 +143,10 @@ class UrlCreator
 
         $customerInfo = $this->_loadCustomerInfo($quote);
 
-        $support = \Magento\Framework\App\ObjectManager::getInstance()->get('Payflex\Gateway\Helper\Support');
-        $magento_version = $support->getMagentoVersion();
-
-        $platform_info_string = 'Magento ' . $magento_version;
+        $platform_info_string = 'Magento ' . $this->support->getMagentoVersion();
 
         //format order
-        $param = array();
+        $param = [];
         $param['amount'] = $quote->getBaseGrandTotal();
 
         $param['consumer']['phoneNumber'] = $customerInfo->getPhoneNumber();
@@ -154,26 +170,24 @@ class UrlCreator
         $param['shipping']['state']        = $quote->getShippingAddress()->getRegion();
         $param['shipping']['country']      = $quote->getShippingAddress()->getCountry();
 
-        $param['merchantSystemInformation']['plugin_version']     = $support->getModuleVersion();
-        $param['merchantSystemInformation']['php_version']        = $support->getPHPVersion();
+        $param['merchantSystemInformation']['plugin_version']     = $this->support->getModuleVersion();
+        $param['merchantSystemInformation']['php_version']        = $this->support->getPHPVersion();
         $param['merchantSystemInformation']['ecommerce_platform'] = $platform_info_string;
 
         $param['description'] = '';
 
-        $productManager = $this->_objectManager->create("\Magento\Catalog\Model\Product");
+        $productManager = $this->productFactory->create();
         //format all items in cart
-        foreach ( $quote->getAllVisibleItems() as $item){
-            /**
-             * @var \Magento\Catalog\Model\Product $product
-             */
+        foreach ($quote->getAllVisibleItems() as $item) {
+            /** @var \Magento\Catalog\Model\Product $product */
             $product = $productManager->load($item->getProductId());
-            $param['items'][] = array(
+            $param['items'][] = [
                 'description' => $product->getDescription(),
-                'name' => $item->getName(),
-                'sku' => $item->getSku(),
-                'quantity' => $item->getQty(),
-                'price' => $item->getBaseRowTotalInclTax(),
-            );
+                'name'        => $item->getName(),
+                'sku'         => $item->getSku(),
+                'quantity'    => $item->getQty(),
+                'price'       => $item->getBaseRowTotalInclTax(),
+            ];
         }
 
         $param['merchantReference'] = $orderIncrementId;
@@ -188,10 +202,9 @@ class UrlCreator
     {
         $customerId = $quote->getCustomerId();
         $this->_logger->info(__METHOD__ . " customerId:{$customerId}");
-        $customerInfo = $this->_objectManager->create("\Magento\Framework\DataObject");
+        $customerInfo = $this->dataObjectFactory->create();
 
         $customerInfo->setId($customerId);
-
         $customerInfo->setFirstname($this->_getCustomerFirstname($quote));
         $customerInfo->setSurname($this->_getCustomerSurname($quote));
         $customerInfo->setEmail($quote->getCustomerEmail());
@@ -241,7 +254,6 @@ class UrlCreator
             $customerSurname = $quote->getBillingAddress()->getLastname();
         }
 
-        $this->_logger->info(__METHOD__ . " customerSurname:{$customerSurname}");
         return $customerSurname;
     }
 
@@ -258,7 +270,6 @@ class UrlCreator
             $customerFirstname = $quote->getBillingAddress()->getFirstname();
         }
 
-        $this->_logger->info(__METHOD__ . " customerFirstname:{$customerFirstname}");
         return $customerFirstname;
     }
 }

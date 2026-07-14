@@ -85,6 +85,62 @@ Once the setup commands finish, enable and configure the gateway in the Magento 
    - Older modules needed to have `symfony/lock` installed via composer, and the `SourceSandboxproduction.php` file added to `Magento/Config/Model/Config/`. Once
    you upgrade to the new module, these can be removed if you wish, though leaving them shouldn't cause any issues.
 
+## Running the Unit Tests
+
+The module ships with PHPUnit unit tests under `app/code/Payflex/Gateway/Test/Unit/`. They are pure unit tests — no database, web server, or live Payflex connection is required (HTTP is mocked), so they are safe to run on any install.
+
+### Prerequisites
+
+- The module is installed (either manually in `app/code/Payflex/Gateway` or via Composer in `vendor/payflex/magento2-gateway`), and Magento's `composer install` has been run so that PHPUnit and the framework test dependencies are available.
+
+### Run all module unit tests (recommended)
+
+The module ships a small runner, `run-tests.php`, in its root folder. Run it with PHP from anywhere — it locates the Magento root itself, so it works whether the module lives in `app/code` or `vendor`, and regardless of your current directory:
+
+```bash
+# Manual (app/code) install:
+php app/code/Payflex/Gateway/run-tests.php
+
+# Composer install:
+php vendor/payflex/magento2-gateway/run-tests.php
+```
+
+Expected result: **13 tests, 21 assertions, all passing**.
+
+The runner generates its own minimal PHPUnit configuration that reuses Magento's standard unit-test bootstrap but omits the Allure reporting extension. This keeps the output clean — see the note below for why that matters.
+
+### Run a single test class or filter
+
+Any extra arguments are passed straight through to PHPUnit. For example:
+
+```bash
+# One test file (path is relative to the module's Test/Unit folder or absolute):
+php app/code/Payflex/Gateway/run-tests.php Test/Unit/Service/OrderFinalizerTest.php
+
+# Or filter by test-method name:
+php app/code/Payflex/Gateway/run-tests.php --filter versionCheck
+```
+
+### Running via PHPUnit directly (alternative)
+
+If you prefer to invoke PHPUnit yourself against Magento's stock config, run this from your **Magento root directory**:
+
+```bash
+php -d memory_limit=-1 vendor/bin/phpunit \
+  -c dev/tests/unit/phpunit.xml.dist \
+  app/code/Payflex/Gateway/Test/Unit
+```
+
+> **Note — the Allure warning.** Magento's stock `dev/tests/unit/phpunit.xml.dist` registers the Allure reporting extension with a *relative* config path (`allure/allure.config.php`). Because the extension resolves that path against the current working directory rather than the config file's location, running from the Magento root produces a noisy `Config file allure/allure.config.php doesn't exist` bootstrap warning. (Running from `dev/tests/unit` makes it resolve instead — but then Allure loads and dumps JSON result files into `dev/tests/unit/var/allure-results`.) This is a stock Magento/Allure quirk, **not** something this module introduces — it affects any module's unit tests — and it never changes the test results. The `run-tests.php` runner above avoids it entirely by not loading Allure.
+
+### What the tests cover
+
+| Test | Covers |
+|------|--------|
+| `Helper/ConfigurationTest` | `versionCheck()` boundaries (incl. `-pN` suffixes and the max bound); order status/state fallback to `processing`; boolean flag casting |
+| `Helper/CommunicationTest` | Environment resolution (sandbox vs production URLs/keys); OAuth token cache-hit vs fresh-fetch (HTTP mocked) |
+| `Service/OrderFinalizerTest` | The finalisation decision matrix: reject when not Approved; reject Approved-but-mismatched-reference; capture when Approved with a matching reference |
+
 ## Additional Information
 
 - Ensure that you have the necessary permissions to execute the commands.

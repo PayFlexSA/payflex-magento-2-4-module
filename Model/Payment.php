@@ -6,11 +6,8 @@ namespace Payflex\Gateway\Model;
 
 class Payment extends \Magento\Payment\Model\Method\AbstractMethod
 {
-    /**
-     *
-     * @var \Magento\Framework\App\ObjectManager
-     */
-    private $_objectManager;
+    // NB: $_logger is declared (protected) by AbstractModel; we reuse it for the
+    // Payflex logger rather than redeclaring it.
 
     protected $_code;
     
@@ -51,6 +48,9 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         \Magento\Payment\Helper\Data $paymentData,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Magento\Payment\Model\Method\Logger $logger,
+        \Payflex\Gateway\Logger\PayflexLogger $payflexLogger,
+        \Payflex\Gateway\Model\PaymentHelper $paymentHelper,
+        \Payflex\Gateway\Helper\Communication $communication,
         ?\Magento\Framework\Model\ResourceModel\AbstractResource $resource = null,
         ?\Magento\Framework\Data\Collection\AbstractDb $resourceCollection = null,
         array $data = []
@@ -69,17 +69,9 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
             $data
         );
         $this->_code = self::Payflex_Gateway_CODE;
-        $this->_objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_logger = $this->_objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-		
-		/** @var \Payflex\Gateway\Helper\Configuration $configuration*/
-        $configuration = $this->_objectManager->get("\Payflex\Gateway\Helper\Configuration");
-		/** @var \Payflex\Gateway\Helper\Communication $communication*/
-        $communication = $this->_objectManager->get("\Payflex\Gateway\Helper\Communication");
-        $this->_paymentHelper = $this->_objectManager->create("\Payflex\Gateway\Model\PaymentHelper");
-        $this->_paymentHelper->init($configuration, $communication);
+        $this->_logger = $payflexLogger;
+        $this->_paymentHelper = $paymentHelper;
         $this->communication = $communication;
-        $this->_logger->info(__METHOD__);
     }
 
      /**
@@ -110,20 +102,14 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     // invoked by Magento\Quote\Model\PaymentMethodManagement::set
     public function assignData(\Magento\Framework\DataObject $data)
     {
-        $this->_logger->info(__METHOD__ . " data:" . var_export($data, true));
+        $this->_logger->info(__METHOD__);
         $infoInstance = $this->getInfoInstance();
-        $source = $data;
-        if (isset($data['additional_data'])){
-            $source = $this->_objectManager->create("\Magento\Framework\DataObject");
-            $source->setData($data['additional_data']);
-        }
-        
-        $info = [];
-        
-        $infoInstance->setAdditionalInformation($info);
+
+        // Additional information is (re)built later in the session-creation flow
+        // (see ApiCommonHelper / UrlCreator), so we start it clean here.
+        $infoInstance->setAdditionalInformation([]);
         $infoInstance->save();
 
-        $this->_logger->info(__METHOD__ . " info:" . var_export($info, true));
         return $this;
     }
     

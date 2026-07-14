@@ -1,53 +1,49 @@
 <?php
 namespace Payflex\Gateway\Model;
 
-use \Magento\Checkout\Model\ConfigProviderInterface;
+use Magento\Checkout\Model\ConfigProviderInterface;
+use Magento\Checkout\Model\Session as CheckoutSession;
+use Payflex\Gateway\Helper\Configuration;
+use Payflex\Gateway\Helper\PaymentUtil;
+use Payflex\Gateway\Logger\PayflexLogger;
 
 // Invoked by Magento\Checkout\Block\Onepage::getCheckoutConfig
 class PayflexConfigProvider implements ConfigProviderInterface
 {
-
-    /**
-     *
-     * @var \Payflex\Gateway\Logger\PayflexLogger
-     */
+    /** @var PayflexLogger */
     private $_logger;
 
-    /**
-     *
-     * @var \Magento\Framework\App\ObjectManager
-     */
-    private $_objectManager;
-
-    /**
-     *
-     * @var \Payflex\Gateway\Helper\Configuration
-     */
+    /** @var Configuration */
     private $_configuration;
 
-    public function __construct(\Magento\Framework\ObjectManagerInterface $objectManager)
-    {
-        $this->_objectManager = $objectManager;
-        $this->_configuration = $this->_objectManager->get("\Payflex\Gateway\Helper\Configuration");
-        $this->_logger = $this->_objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_logger->info(__METHOD__);
+    /** @var CheckoutSession */
+    private $checkoutSession;
+
+    /** @var PaymentUtil */
+    private $paymentUtil;
+
+    public function __construct(
+        Configuration $configuration,
+        CheckoutSession $checkoutSession,
+        PaymentUtil $paymentUtil,
+        PayflexLogger $logger
+    ) {
+        $this->_configuration = $configuration;
+        $this->checkoutSession = $checkoutSession;
+        $this->paymentUtil = $paymentUtil;
+        $this->_logger = $logger;
     }
 
     public function getConfig()
     {
-        $this->_logger->info(__METHOD__);
-        $session = $this->_objectManager->get('\Magento\Checkout\Model\Session');
-        $quote = $session->getQuote();
+        $quote = $this->checkoutSession->getQuote();
         $quoteId = $quote->getId();
-        $this->_logger->info(__METHOD__.' quoteId : '.$quoteId);
-//        $customerSession = $this->_objectManager->get("\Magento\Customer\Model\Session");
-        $paymentUtil = $this->_objectManager->get("\Payflex\Gateway\Helper\PaymentUtil");
+        $this->_logger->info(__METHOD__ . ' quoteId : ' . $quoteId);
 
-        
         return [
             'payment' => [
                 'payflex' => [
-                    'redirectUrl' => $paymentUtil->buildRedirectUrl($quoteId),
+                    'redirectUrl' => $this->paymentUtil->buildRedirectUrl($quoteId),
                     'method' => \Payflex\Gateway\Model\Payment::Payflex_Gateway_CODE
                 ]
             ]

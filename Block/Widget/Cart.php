@@ -20,15 +20,14 @@ class Cart extends \Magento\Framework\View\Element\Template
     public function __construct(
         Context $context,
         \Magento\Checkout\Model\Session $checkoutSession,
-        array $data = [])
-    {
+        \Payflex\Gateway\Helper\PaymentUtil $paymentUtil,
+        \Payflex\Gateway\Logger\PayflexLogger $logger,
+        array $data = []
+    ) {
         parent::__construct($context, $data);
-
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_logger = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_paymentUtil = $objectManager->get("\Payflex\Gateway\Helper\PaymentUtil");
+        $this->_logger = $logger;
+        $this->_paymentUtil = $paymentUtil;
         $this->_checkoutSession = $checkoutSession;
-        $this->_logger->info('Cart:'.__METHOD__);
     }
 
     public function getCartWidgetHtml()

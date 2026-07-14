@@ -1,65 +1,56 @@
 <?php
 /**
- * Intercept the config save action to perform custom logic before and after saving the configuration.
+ * Intercept the config save action to refresh Payflex credentials and merchant
+ * configuration after the admin saves the payment settings.
  */
 
 namespace Payflex\Gateway\Model\Config;
 
 use Magento\Config\Controller\Adminhtml\System\Config\Save as ConfigSave;
+use Magento\Store\Model\StoreManagerInterface;
 use Payflex\Gateway\Helper\Communication;
+use Payflex\Gateway\Helper\PaymentUtil;
+use Payflex\Gateway\Model\ConfigurationFactory;
 
 class PayflexConfigSave
 {
-    private $orderCollectionFactory;
-
-    private $objectManager;
-
-    private $timezone;
-
-    private $paymentUtil;
-
-    /**
-     * @var \Payflex\Gateway\Helper\Communication
-     */
+    /** @var Communication */
     private $communication;
 
+    /** @var PaymentUtil */
+    private $paymentUtil;
+
+    /** @var StoreManagerInterface */
+    private $storeManager;
+
+    /** @var ConfigurationFactory */
+    private $configurationFactory;
+
     public function __construct(
-        \Magento\Sales\Model\ResourceModel\Order\CollectionFactory $orderCollectionFactory
+        Communication $communication,
+        PaymentUtil $paymentUtil,
+        StoreManagerInterface $storeManager,
+        ConfigurationFactory $configurationFactory
     ) {
-        $this->orderCollectionFactory = $orderCollectionFactory;
-
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->objectManager = $objectManager;
-        $context = $objectManager->get('Magento\Framework\App\Helper\Context');
-
-        // Get system timezone
-        $timezone = $objectManager->create('Magento\Framework\Stdlib\DateTime\TimezoneInterface');
-        $timezone->getConfigTimezone();
-        $timezone->date();
-
-        $timezone = new \DateTimeZone($timezone->getConfigTimezone());
-        $this->timezone = $timezone;
-
-        $date = $objectManager->get('Magento\Framework\Stdlib\DateTime\DateTime');
-        $this->communication = new Communication($context, $date);
-
-        $this->paymentUtil = $objectManager->get("\Payflex\Gateway\Helper\PaymentUtil");
+        $this->communication = $communication;
+        $this->paymentUtil = $paymentUtil;
+        $this->storeManager = $storeManager;
+        $this->configurationFactory = $configurationFactory;
     }
+
     public function beforeExecute(ConfigSave $subject)
     {
-        // Do things BEFORE save
         return null;
     }
 
     public function afterExecute(ConfigSave $subject, $result)
     {
-        // Do things AFTER save
+        // Credentials may have changed: drop the cached token and re-pull the
+        // merchant configuration for every store.
         $this->communication->forceRefeshToken();
 
-        // refresh merchant configuration for all stores
-        $stores = $this->objectManager->get("\Magento\Store\Model\StoreManagerInterface")->getStores();
-        foreach (array_keys($stores) as $storeId){
-            $configurationModel = $this->objectManager->create("\Payflex\Gateway\Model\Configuration")->load($storeId, "store_id");
+        foreach (array_keys($this->storeManager->getStores()) as $storeId) {
+            $configurationModel = $this->configurationFactory->create()->load($storeId, "store_id");
             $this->paymentUtil->refreshMerchantConfiguration($configurationModel, $storeId);
         }
 

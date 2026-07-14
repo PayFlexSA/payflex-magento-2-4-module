@@ -34,13 +34,12 @@ class GuestPayflexManagement implements \Payflex\Gateway\Api\GuestPayflexManagem
     public function __construct(
     		\Magento\Quote\Api\CartRepositoryInterface $quoteRepository,
     		\Magento\Quote\Model\QuoteIdMaskFactory $quoteIdMaskFactory,
-    		\Magento\Quote\Api\GuestBillingAddressManagementInterface $billingAddressManagement
+    		\Magento\Quote\Api\GuestBillingAddressManagementInterface $billingAddressManagement,
+    		\Payflex\Gateway\Model\Api\ApiPayflexHelper $apiHelper,
+    		\Payflex\Gateway\Logger\PayflexLogger $logger
     ) {
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_apiHelper = $objectManager->get("\Payflex\Gateway\Model\Api\ApiPayflexHelper");
-        $this->_logger = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_logger->info(__METHOD__);
-        
+        $this->_apiHelper = $apiHelper;
+        $this->_logger = $logger;
         $this->_cartRepository = $quoteRepository;
         $this->_quoteIdMaskFactory = $quoteIdMaskFactory;
         $this->billingAddressManagement = $billingAddressManagement;

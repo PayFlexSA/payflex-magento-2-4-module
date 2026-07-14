@@ -237,6 +237,40 @@
             </div>
         </div>
     </div>
+
+    <div class="admin__page-section-item payflex-tests-section">
+        <div class="admin__page-section-item-content">
+            <div class="admin__page-section-item-title">
+                <span class="title">Unit Tests</span>
+            </div>
+            <div class="admin__page-section-item-content">
+                <div class="payflex-tests" id="payflex-tests"
+                     data-run-url="<?=$this->getUrl('payflex/index/runTests')?>">
+                    <button type="button" class="payflex-tests__toggle" aria-expanded="false">
+                        <span class="payflex-tests__caret" aria-hidden="true">&#9656;</span>
+                        <span class="payflex-tests__toggle-label">Module unit tests</span>
+                        <span class="payflex-tests__headline" data-tests-headline></span>
+                    </button>
+                    <div class="payflex-tests__body" hidden>
+                        <p class="payflex-tests__intro">
+                            Runs the Payflex module's PHPUnit suite and reports what each test verifies.
+                            These are safe, read-only checks - they touch no orders or live data.
+                            The same suite can be run from the command line with
+                            <code>php app/code/Payflex/Gateway/run-tests.php</code>.
+                            <br/>
+                            Note these tests are largely LLM generated (under supervision) and simply used as a secondary set of "eyes" and a quick sanity check on individual installs.
+                            <br/>Manual end to end tests are conducted on a number of different environments with every release by our team to ensure stability.
+                        </p>
+                        <div class="payflex-tests__actions">
+                            <button type="button" class="action-primary" data-tests-run>Run tests</button>
+                            <span class="payflex-tests__status" data-tests-status></span>
+                        </div>
+                        <div class="payflex-tests__results" data-tests-results></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 <?php
     /** @var \Magento\Framework\Data\Form\FormKey $formKeyProvider */
@@ -507,5 +541,239 @@
         color: #721c24;
     }
 
-    
+
+</style>
+<script>
+(function () {
+    var root = document.getElementById('payflex-tests');
+    if (!root || root.dataset.payflexBound) {
+        return;
+    }
+    root.dataset.payflexBound = '1';
+
+    var runUrl      = root.getAttribute('data-run-url');
+    var toggle      = root.querySelector('.payflex-tests__toggle');
+    var caret       = root.querySelector('.payflex-tests__caret');
+    var body        = root.querySelector('.payflex-tests__body');
+    var headline    = root.querySelector('[data-tests-headline]');
+    var runBtn      = root.querySelector('[data-tests-run]');
+    var statusEl    = root.querySelector('[data-tests-status]');
+    var resultsEl   = root.querySelector('[data-tests-results]');
+    var hasRun      = false;
+
+    // Accordion open/close. The first time it opens, kick off a run so the
+    // panel is never empty.
+    toggle.addEventListener('click', function () {
+        var open = body.hasAttribute('hidden');
+        if (open) {
+            body.removeAttribute('hidden');
+        } else {
+            body.setAttribute('hidden', '');
+        }
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (caret) {
+            caret.style.transform = open ? 'rotate(90deg)' : '';
+        }
+        if (open && !hasRun) {
+            runTests();
+        }
+    });
+
+    function el(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) {
+            node.className = className;
+        }
+        if (text !== undefined && text !== null) {
+            node.textContent = text;
+        }
+        return node;
+    }
+
+    function badge(status) {
+        var label = status === 'passed' ? 'PASS' : (status === 'skipped' ? 'SKIP' : 'FAIL');
+        return el('span', 'payflex-tests__badge payflex-tests__badge--' + status, label);
+    }
+
+    function renderResults(data) {
+        resultsEl.innerHTML = '';
+
+        if (!data.available) {
+            resultsEl.appendChild(el('div', 'payflex-tests__notice payflex-tests__notice--error', data.summary || 'The tests could not be run.'));
+            return;
+        }
+
+        (data.suites || []).forEach(function (suite) {
+            var group = el('div', 'payflex-tests__suite');
+            group.appendChild(el('div', 'payflex-tests__suite-title', suite.name));
+
+            (suite.tests || []).forEach(function (test) {
+                var row = el('div', 'payflex-tests__test payflex-tests__test--' + test.status);
+                row.appendChild(badge(test.status));
+
+                var main = el('div', 'payflex-tests__test-main');
+                main.appendChild(el('span', 'payflex-tests__test-desc', test.description || test.name));
+                if (typeof test.time === 'number') {
+                    main.appendChild(el('span', 'payflex-tests__test-time', test.time + ' ms'));
+                }
+                if (test.message) {
+                    main.appendChild(el('pre', 'payflex-tests__test-message', test.message));
+                }
+                row.appendChild(main);
+                group.appendChild(row);
+            });
+
+            resultsEl.appendChild(group);
+        });
+    }
+
+    function setHeadline(data) {
+        headline.textContent = data.summary || '';
+        headline.className = 'payflex-tests__headline '
+            + (data.available
+                ? (data.passed ? 'payflex-tests__headline--ok' : 'payflex-tests__headline--error')
+                : 'payflex-tests__headline--error');
+    }
+
+    function runTests() {
+        hasRun = true;
+        runBtn.disabled = true;
+        runBtn.textContent = 'Running...';
+        statusEl.textContent = 'Running the unit-test suite, please wait...';
+        statusEl.className = 'payflex-tests__status';
+        resultsEl.innerHTML = '';
+
+        fetch(runUrl, {
+            method: 'GET',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            runBtn.disabled = false;
+            runBtn.textContent = 'Re-run tests';
+            statusEl.textContent = '';
+            setHeadline(data);
+            renderResults(data);
+        }).catch(function () {
+            runBtn.disabled = false;
+            runBtn.textContent = 'Run tests';
+            statusEl.textContent = 'Could not reach the test runner. Please try again.';
+            statusEl.className = 'payflex-tests__status payflex-tests__status--error';
+        });
+    }
+
+    runBtn.addEventListener('click', runTests);
+})();
+</script>
+<style>
+    .payflex-tests-section {
+        margin-top: 20px;
+    }
+    .payflex-tests__toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        text-align: left;
+        appearance: none;
+        border: 1px solid #ddd;
+        background: #f8f8f8;
+        padding: 10px 12px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    .payflex-tests__caret {
+        display: inline-block;
+        transition: transform .15s ease;
+        color: #6a4bbc;
+    }
+    .payflex-tests__headline {
+        margin-left: auto;
+        font-weight: 600;
+        font-size: 12px;
+    }
+    .payflex-tests__headline--ok { color: #155724; }
+    .payflex-tests__headline--error { color: #721c24; }
+    .payflex-tests__body {
+        border: 1px solid #ddd;
+        border-top: none;
+        padding: 15px;
+    }
+    .payflex-tests__intro {
+        margin: 0 0 12px;
+        color: #555;
+        line-height: 1.5;
+    }
+    .payflex-tests__intro code {
+        background: #eee;
+        padding: 1px 5px;
+        border-radius: 3px;
+    }
+    .payflex-tests__actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .payflex-tests__actions .action-primary {
+        background: #6a4bbc;
+        border-color: #6a4bbc;
+    }
+    .payflex-tests__status { color: #666; font-size: 12px; }
+    .payflex-tests__status--error { color: #721c24; }
+    .payflex-tests__suite { margin-bottom: 16px; }
+    .payflex-tests__suite-title {
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 6px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid #eee;
+    }
+    .payflex-tests__test {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 6px 4px;
+        border-bottom: 1px solid #f2f2f2;
+    }
+    .payflex-tests__test:last-child { border-bottom: none; }
+    .payflex-tests__test-main {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 10px;
+        flex: 1;
+    }
+    .payflex-tests__test-desc { color: #333; }
+    .payflex-tests__test-time { color: #999; font-size: 11px; }
+    .payflex-tests__test-message {
+        flex-basis: 100%;
+        margin: 4px 0 0;
+        padding: 8px;
+        background: #f8d7da;
+        color: #721c24;
+        border-radius: 3px;
+        font-size: 12px;
+        white-space: pre-wrap;
+        overflow-x: auto;
+    }
+    .payflex-tests__badge {
+        flex-shrink: 0;
+        display: inline-block;
+        min-width: 42px;
+        text-align: center;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .5px;
+    }
+    .payflex-tests__badge--passed { background: #d4edda; color: #155724; }
+    .payflex-tests__badge--failed { background: #f8d7da; color: #721c24; }
+    .payflex-tests__badge--skipped { background: #fff3cd; color: #856404; }
+    .payflex-tests__notice {
+        padding: 10px 12px;
+        border-radius: 3px;
+        line-height: 1.5;
+    }
+    .payflex-tests__notice--error { background: #f8d7da; color: #721c24; }
 </style>

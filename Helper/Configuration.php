@@ -4,7 +4,10 @@ namespace Payflex\Gateway\Helper;
 
 use Magento\Framework\App\Helper\AbstractHelper;
 use Magento\Framework\App\Helper\Context;
+use Magento\Framework\App\ProductMetadataInterface;
+use Magento\Framework\Module\ModuleListInterface;
 use Magento\Sales\Model\Order;
+use Payflex\Gateway\Logger\PayflexLogger;
 
 class Configuration extends AbstractHelper
 {
@@ -12,17 +15,25 @@ class Configuration extends AbstractHelper
     const MODULE_NAME = "Payflex_Gateway";
 
     /**
-     *
-     * @var \Magento\Framework\Module\ModuleListInterface
+     * @var ModuleListInterface
      */
     private $_moduleList;
 
-    public function __construct(Context $context)
-    {
+    /**
+     * @var ProductMetadataInterface
+     */
+    private $productMetadata;
+
+    public function __construct(
+        Context $context,
+        ModuleListInterface $moduleList,
+        ProductMetadataInterface $productMetadata,
+        PayflexLogger $logger
+    ) {
         parent::__construct($context);
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_moduleList = $objectManager->get("Magento\Framework\Module\ModuleListInterface");
-        $this->_logger = $objectManager->get("Payflex\Gateway\Logger\PayflexLogger");
+        $this->_moduleList = $moduleList;
+        $this->productMetadata = $productMetadata;
+        $this->_logger = $logger;
     }
 
     public function getPaymentType($storeId = null)
@@ -113,9 +124,7 @@ class Configuration extends AbstractHelper
     }
     public function getMagentoVersion()
     {
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $productMetadata = $objectManager->get('Magento\Framework\App\ProductMetadataInterface');
-        return $productMetadata->getVersion();
+        return $this->productMetadata->getVersion();
     }
     private function _getPayflexStoreConfig($configName, $storeId = null, $isSensitiveData = false)
     {

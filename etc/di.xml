@@ -11,12 +11,4 @@
     </type>
     <preference for="Payflex\Gateway\Api\PayflexManagementInterface" type="Payflex\Gateway\Model\Api\PayflexManagement" />
     <preference for="Payflex\Gateway\Api\GuestPayflexManagementInterface" type="Payflex\Gateway\Model\Api\GuestPayflexManagement" />
-
-    <type name="Payflex\Gateway\Helper\Support">
-        <arguments>
-            <argument name="scopeConfig" xsi:type="object">Magento\Framework\App\Config\ScopeConfigInterface</argument>
-            <argument name="context" xsi:type="object">Magento\Framework\App\Helper\Context</argument>
-            <argument name="communication" xsi:type="object">Payflex\Gateway\Helper\Communication</argument>
-        </arguments>
-    </type>
 </config>

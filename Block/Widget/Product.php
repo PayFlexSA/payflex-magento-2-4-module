@@ -25,16 +25,15 @@ class Product extends \Magento\Framework\View\Element\Template
         Context $context,
         \Magento\Framework\Registry $registry,
         \Magento\Catalog\Api\ProductRepositoryInterface $productRepository,
+        \Payflex\Gateway\Helper\PaymentUtil $paymentUtil,
+        \Payflex\Gateway\Logger\PayflexLogger $logger,
         array $data = []
-    ){
+    ) {
         parent::__construct($context, $data);
-        
-        $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-        $this->_logger = $objectManager->get("\Payflex\Gateway\Logger\PayflexLogger");
-        $this->_paymentUtil = $objectManager->get("\Payflex\Gateway\Helper\PaymentUtil");
+        $this->_logger = $logger;
+        $this->_paymentUtil = $paymentUtil;
         $this->_coreRegistry = $registry;
         $this->_productRepository = $productRepository;
-        $this->_logger->info('Product:'.__METHOD__);
     }
 
     public function getProductWidgetHtml(?\Magento\Catalog\Model\Product $product = null)
