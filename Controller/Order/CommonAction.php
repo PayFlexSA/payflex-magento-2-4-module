@@ -4,27 +4,30 @@ namespace Payflex\Gateway\Controller\Order;
 use Magento\Checkout\Model\Session as CheckoutSession;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
-use Magento\Sales\Model\Order;
 use Magento\Sales\Model\OrderFactory;
-use Payflex\Gateway\Helper\Communication;
 use Payflex\Gateway\Helper\Configuration;
-use Payflex\Gateway\Helper\PaymentUtil;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Model\RequestTokenFactory;
 use Payflex\Gateway\Service\OrderFinalizer;
+use Payflex\Gateway\Service\OrderReconciler;
 
 /**
  * Shared logic for the Payflex return controllers (Success / Fail). Verifies the
- * returned token against the stored request, re-checks the live Payflex status
- * server-to-server, then finalises or cancels the order via {@see OrderFinalizer}.
+ * returned token against the stored request, then reconciles the order against
+ * Payflex via {@see OrderReconciler}.
+ *
+ * Which URL the customer came back through never decides the outcome. It only
+ * says which message they see, and is recorded on the order. The order status
+ * is always set from the status read back from Payflex, so a customer landing
+ * on the cancel link can never cancel a payment that actually went through.
+ *
+ * By the time the customer gets back here the webhook has usually already
+ * finalised the order, so both routes have to cope with that.
  */
 abstract class CommonAction extends Action
 {
     /** @var PayflexLogger */
     protected $_logger;
-
-    /** @var Communication */
-    private $communication;
 
     /** @var CheckoutSession */
     private $checkoutSession;
@@ -32,11 +35,11 @@ abstract class CommonAction extends Action
     /** @var Configuration */
     private $configHelper;
 
-    /** @var PaymentUtil */
-    private $paymentUtil;
-
     /** @var OrderFinalizer */
     private $orderFinalizer;
+
+    /** @var OrderReconciler */
+    private $orderReconciler;
 
     /** @var RequestTokenFactory */
     private $requestTokenFactory;
@@ -47,21 +50,19 @@ abstract class CommonAction extends Action
     public function __construct(
         Context $context,
         PayflexLogger $logger,
-        Communication $communication,
         CheckoutSession $checkoutSession,
         Configuration $configHelper,
-        PaymentUtil $paymentUtil,
         OrderFinalizer $orderFinalizer,
+        OrderReconciler $orderReconciler,
         RequestTokenFactory $requestTokenFactory,
         OrderFactory $orderFactory
     ) {
         parent::__construct($context);
         $this->_logger = $logger;
-        $this->communication = $communication;
         $this->checkoutSession = $checkoutSession;
         $this->configHelper = $configHelper;
-        $this->paymentUtil = $paymentUtil;
         $this->orderFinalizer = $orderFinalizer;
+        $this->orderReconciler = $orderReconciler;
         $this->requestTokenFactory = $requestTokenFactory;
         $this->orderFactory = $orderFactory;
     }
@@ -88,8 +89,8 @@ abstract class CommonAction extends Action
     }
 
     /**
-     * Handle the return, guarding against duplicate concurrent processing with a
-     * file lock. The real work happens in _handlePaymentResponseWithoutLock().
+     * Verify the token Payflex sent back, then hand the order over to the
+     * matching return handler.
      */
     private function _handlePaymentResponse($success)
     {
@@ -106,109 +107,192 @@ abstract class CommonAction extends Action
         }
         $this->_logger->info(__METHOD__ . " order:{$orderIncrementId} token:{$orderToken} success:{$success}");
 
-        $lockFilePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'order_' . md5($orderToken) . '.lock';
         try {
-            $lockFile = fopen($lockFilePath, 'c');
-            if (!$lockFile || !flock($lockFile, LOCK_EX | LOCK_NB)) {
-                $action = $this->getRequest()->getActionName();
-                $params = $this->getRequest()->getParams();
-                $triedTime = 0;
-                if (array_key_exists('TriedTime', $params)) {
-                    $triedTime = $params['TriedTime'];
-                }
-                if ($triedTime > 40) { // 40 seconds should be enough
-                    $this->_redirectToCartPageWithError("Failed to process the order, please contact support.");
-                    $this->_logger->critical(__METHOD__ . " lock timeout. order:{$orderIncrementId} token:{$orderToken} success:{$success} triedTime:{$triedTime}");
-                    return;
-                }
-
-                $params['TriedTime'] = $triedTime + 1;
-
-                $this->_logger->info(__METHOD__ . " redirecting to self, wait for lock release. order:{$orderIncrementId} token:{$orderToken} success:{$success} triedTime:{$triedTime}");
-                sleep(1); // wait for sometime about lock release
-                return $this->_forward($action, null, null, $params);
-            }
-
-            $this->_handlePaymentResponseWithoutLock($success, $orderIncrementId, $payflexId);
-            flock($lockFile, LOCK_UN);
-            fclose($lockFile);
-            unlink($lockFilePath);
+            $this->_handleOrderReturn($success, $orderIncrementId, $payflexId);
         } catch (\Exception $e) {
-            if (isset($lockFile)) {
-                flock($lockFile, LOCK_UN);
-                fclose($lockFile);
-                unlink($lockFilePath);
-            }
             $this->checkoutSession->restoreQuote();
             $this->_logger->critical(__METHOD__ . "  " . "\n" . $e->getMessage() . $e->getTraceAsString());
             $this->_redirectToCartPageWithError("Failed to process the order, please contact support.");
         }
     }
 
-    private function _handlePaymentResponseWithoutLock($success, $orderIncrementId, $payflexId)
+    private function _handleOrderReturn($success, $orderIncrementId, $payflexId)
     {
         $this->_logger->info(__METHOD__ . " order:{$orderIncrementId} payflexId:{$payflexId} success:{$success}");
+
         if (!$orderIncrementId) {
             $error = "The Payflex response does not contain an order ID. Order failed.";
             $this->_logger->info($error);
             $this->_redirectToCartPageWithError($error);
             return;
         }
-        $response = $this->_getTransactionStatus($payflexId, $orderIncrementId);
-        if (!$response) {
-            return;
-        }
+
         $order = $this->getOrderByIncrementId($orderIncrementId);
-        if (empty($order)) {
+        if (!$order->getId()) {
             $error = "Failed to load order: {$orderIncrementId}";
             $this->_logger->critical($error);
             $this->_redirectToCartPageWithError($error);
             return;
         }
-        if (!$success || in_array($response['orderStatus'], ['Declined', 'Abandoned']) && $response['merchantReference'] == $orderIncrementId) {
-            if ($this->orderFinalizer->cancel($order, 'Payflex: Order has been cancelled. Order ID: ' . $orderIncrementId)) {
-                $this->savePaymentInfoForFailedPayment($order->getPayment());
-                $error = "Transaction has been cancelled or declined Order ID: " . $orderIncrementId;
-                $this->_logger->info($error);
-                $this->checkoutSession->restoreQuote();
-                $this->_redirectToCartPageWithError($error);
-            }
+
+        if ($success) {
+            $this->_handleSuccessReturn($order, $payflexId);
             return;
         }
 
-        return $this->_updateSuccessOrder($order, $response);
+        $this->_handleCancelReturn($order, $payflexId);
     }
 
     /**
-     * Finalise a successfully-paid order (capture + invoice) and redirect the
-     * shopper to the standard checkout success page.
+     * The customer came back through the Payflex confirm link. The order has
+     * usually been finalised by the webhook already.
      */
-    private function _updateSuccessOrder($order, $response)
+    private function _handleSuccessReturn($order, $payflexId)
     {
-        $this->_logger->info(__METHOD__);
-        $orderId = $order->getId();
-        $quoteId = $order->getQuoteId();
+        $orderIncrementId = $order->getIncrementId();
 
-        if (isset($response['orderStatus']) && $response['orderStatus'] == 'Approved' && $response['merchantReference'] == $order->getIncrementId()) {
-            $quote = $this->paymentUtil->loadQuote($quoteId);
-            if (!$quote) {
-                $this->_redirectToCartPageWithError("Failed to load quote. Please try again.");
-                return;
-            }
-
-            try {
-                $this->orderFinalizer->capture($order, $response);
-            } catch (\Exception $ex) {
-                $this->_logger->error($ex->getMessage());
-            }
-
-            $this->checkoutSession->setLoadInactive(false);
-            $this->_logger->info(__METHOD__ . " placing order done lastOrderId" . $orderId . " lastQuoteId:" . $quoteId);
-
-            $this->_redirect("checkout/onepage/success", ["_secure" => true]);
+        if ($this->orderFinalizer->isFinalized($order)) {
+            $this->_logger->info(__METHOD__ . " order {$orderIncrementId} was already finalised");
+            $this->_redirectToCheckoutSuccess();
             return;
         }
-        throw new \Magento\Framework\Exception\PaymentException(__('Payment failed. Order was not placed.'));
+
+        try {
+            $action = $this->orderReconciler->reconcile($order, 'Payflex');
+        } catch (\Exception $e) {
+            $this->_logger->critical(__METHOD__ . " order:{$orderIncrementId} " . $e->getMessage());
+            $this->_redirectToCartPageWithError("Failed to connect to Payflex checking transaction status. Please try again later.");
+            return;
+        }
+
+        if ($action === OrderReconciler::RESULT_BUSY) {
+            $this->_waitForOtherProcess($orderIncrementId);
+            return;
+        }
+
+        if ($action === OrderFinalizer::RESULT_CAPTURED) {
+            $this->_logger->info(__METHOD__ . " order {$orderIncrementId} captured, Payflex Order ID: {$payflexId}");
+            $this->_redirectToCheckoutSuccess();
+            return;
+        }
+
+        if ($action === OrderFinalizer::RESULT_NEEDS_REVIEW) {
+            $this->_logger->critical(__METHOD__ . " order {$orderIncrementId} is paid but cancelled");
+            $this->_redirectToCartPageWithError("Your payment went through but the order needs to be checked. Please contact support.");
+            return;
+        }
+
+        $this->_returnToCartFor($order, $action);
+    }
+
+    /**
+     * The customer came back through the Payflex cancel link. The visit is
+     * recorded on the order, but only Payflex decides whether it is cancelled.
+     */
+    private function _handleCancelReturn($order, $payflexId)
+    {
+        $orderIncrementId = $order->getIncrementId();
+
+        $order->addStatusHistoryComment((string) __(
+            'Payflex: the customer returned to the store using the Payflex cancel link. Payflex Order ID: %1',
+            $payflexId
+        ))->setIsCustomerNotified(false)->save();
+
+        if ($this->orderFinalizer->isFinalized($order)) {
+            $this->_noteCancelAfterPayment($order);
+            $this->_redirectToCheckoutSuccess();
+            return;
+        }
+
+        try {
+            $action = $this->orderReconciler->reconcile($order, 'Payflex');
+        } catch (\Exception $e) {
+            $this->_logger->critical(__METHOD__ . " order:{$orderIncrementId} " . $e->getMessage());
+            $action = OrderFinalizer::RESULT_NONE;
+        }
+
+        if ($action === OrderReconciler::RESULT_BUSY) {
+            $this->_waitForOtherProcess($orderIncrementId);
+            return;
+        }
+
+        if ($action === OrderFinalizer::RESULT_CAPTURED) {
+            $this->_noteCancelAfterPayment($order);
+            $this->_redirectToCheckoutSuccess();
+            return;
+        }
+
+        $this->_returnToCartFor($order, $action);
+    }
+
+    /**
+     * Send the customer back to their cart after a payment that did not
+     * complete, with a message that matches what Payflex actually reported.
+     */
+    private function _returnToCartFor($order, $action)
+    {
+        $orderIncrementId = $order->getIncrementId();
+
+        if ($action === OrderFinalizer::RESULT_CANCELLED) {
+            $this->savePaymentInfoForFailedPayment($order->getPayment());
+            $error = "Transaction has been cancelled or declined Order ID: " . $orderIncrementId;
+        } else {
+            // Payflex has not settled on a final status. The order is left alone
+            // for the webhook or the cron to finish, and the customer can order
+            // again from their restored cart in the meantime.
+            $this->_logger->info(__METHOD__ . " order {$orderIncrementId} left pending, action:{$action}");
+            $error = "Your payment was not completed. Your cart has been restored so you can try again.";
+        }
+
+        $this->checkoutSession->restoreQuote();
+        $this->_redirectToCartPageWithError($error);
+    }
+
+    /**
+     * Leave a trail on orders where the customer used the cancel link even
+     * though the payment had already gone through.
+     */
+    private function _noteCancelAfterPayment($order)
+    {
+        $this->_logger->critical(__METHOD__ . " cancel link used on paid order {$order->getIncrementId()}");
+
+        $order->addStatusHistoryComment((string) __(
+            'Payflex: the payment for this order had already been approved, so the cancellation was ignored.'
+            . ' The customer reached the cancel link after approving the payment.'
+        ))->setIsCustomerNotified(false)->save();
+    }
+
+    private function _redirectToCheckoutSuccess()
+    {
+        $this->checkoutSession->setLoadInactive(false);
+        $this->_redirect("checkout/onepage/success", ["_secure" => true]);
+    }
+
+    /**
+     * Another process is reconciling this order, so re-run this action shortly
+     * and let the customer land on whatever that process decided.
+     */
+    private function _waitForOtherProcess($orderIncrementId)
+    {
+        $action = $this->getRequest()->getActionName();
+        $params = $this->getRequest()->getParams();
+
+        $triedTime = 0;
+        if (array_key_exists('TriedTime', $params)) {
+            $triedTime = (int) $params['TriedTime'];
+        }
+
+        if ($triedTime > 40) { // 40 seconds should be enough
+            $this->_logger->critical(__METHOD__ . " lock timeout. order:{$orderIncrementId} triedTime:{$triedTime}");
+            $this->_redirectToCartPageWithError("Failed to process the order, please contact support.");
+            return;
+        }
+
+        $params['TriedTime'] = $triedTime + 1;
+
+        $this->_logger->info(__METHOD__ . " waiting for lock release. order:{$orderIncrementId} triedTime:{$triedTime}");
+        sleep(1);
+        $this->_forward($action, null, null, $params);
     }
 
     public function savePaymentInfoForSuccessfulPayment($payment, $response)
@@ -238,30 +322,6 @@ abstract class CommonAction extends Action
     {
         unset($info["cartId"], $info["guestEmail"], $info["method_title"]);
         return $info;
-    }
-
-    private function _getTransactionStatus($payflexId, $orderIncrementId)
-    {
-        try {
-            if (!$payflexId) {
-                throw new \Magento\Framework\Exception\NotFoundException(__('Can\'t find the initial Payflex request ID.'));
-            }
-            $response = $this->communication->getTransactionStatus($payflexId);
-            if (!$response) { // defensive code. should never happen
-                throw new \Magento\Framework\Exception\NotFoundException(__('Transaction status checking response format is incorrect.'));
-            }
-            if ($response['orderStatus'] == 'Approved') {
-                if ($response['merchantReference'] != $orderIncrementId) {
-                    throw new \Magento\Framework\Exception\NotFoundException(__('MerchantReference is incorrect'));
-                }
-            }
-        } catch (\Exception $ex) {
-            $this->_logger->critical(__METHOD__ . " payflexId:{$payflexId} response format is incorrect");
-            $this->_redirectToCartPageWithError("Failed to connect to Payflex checking transaction status. Please try again later.");
-            return false;
-        }
-
-        return $response;
     }
 
     private function _redirectToCartPageWithError($error)

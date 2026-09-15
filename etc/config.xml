@@ -34,6 +34,7 @@
                 <invoice_email>1</invoice_email>
 				<sort_order>1</sort_order>
 				<payflex_cron>1</payflex_cron>
+				<payflex_webhook>1</payflex_webhook>
 				<cron_frequency>*/5 * * * *</cron_frequency>
 			</payflex_gateway>
 		</payment>

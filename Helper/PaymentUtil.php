@@ -4,8 +4,6 @@ namespace Payflex\Gateway\Helper;
 use Magento\Framework\App\Helper\AbstractHelper;
 use Magento\Framework\App\Helper\Context;
 use Magento\Framework\DataObject\Factory as DataObjectFactory;
-use Magento\Framework\Exception\LocalizedException;
-use Magento\Framework\Exception\NotFoundException;
 use Magento\Framework\UrlInterface;
 use Magento\Quote\Model\QuoteFactory;
 use Magento\Sales\Model\OrderFactory;
@@ -13,13 +11,12 @@ use Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollection
 use Magento\Store\Model\StoreManagerInterface;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Model\ConfigurationFactory;
-use Payflex\Gateway\Model\RequestTokenFactory;
-use Payflex\Gateway\Service\OrderFinalizer;
+use Payflex\Gateway\Service\OrderReconciler;
 
 /**
  * Assorted order/quote/widget helpers used by checkout, cron and admin.
- * Order finalisation itself lives in {@see OrderFinalizer} so the checkout and
- * cron paths share one implementation.
+ * Reconciling an order against Payflex lives in {@see OrderReconciler} so the
+ * checkout, cron, webhook and admin paths share one implementation.
  */
 class PaymentUtil extends AbstractHelper
 {
@@ -50,11 +47,8 @@ class PaymentUtil extends AbstractHelper
     /** @var ConfigurationFactory */
     private $configurationFactory;
 
-    /** @var RequestTokenFactory */
-    private $requestTokenFactory;
-
-    /** @var OrderFinalizer */
-    private $orderFinalizer;
+    /** @var OrderReconciler */
+    private $orderReconciler;
 
     public function __construct(
         Context $context,
@@ -68,8 +62,7 @@ class PaymentUtil extends AbstractHelper
         UrlInterface $urlBuilder,
         DataObjectFactory $dataObjectFactory,
         ConfigurationFactory $configurationFactory,
-        RequestTokenFactory $requestTokenFactory,
-        OrderFinalizer $orderFinalizer
+        OrderReconciler $orderReconciler
     ) {
         parent::__construct($context);
         $this->_logger = $logger;
@@ -82,8 +75,7 @@ class PaymentUtil extends AbstractHelper
         $this->urlBuilder = $urlBuilder;
         $this->dataObjectFactory = $dataObjectFactory;
         $this->configurationFactory = $configurationFactory;
-        $this->requestTokenFactory = $requestTokenFactory;
-        $this->orderFinalizer = $orderFinalizer;
+        $this->orderReconciler = $orderReconciler;
     }
 
     public function buildRedirectUrl()
@@ -221,8 +213,9 @@ class PaymentUtil extends AbstractHelper
     }
 
     /**
-     * Reconciliation cron: find pending Payflex orders that are 30 min - 24 h old,
-     * re-check their live status and finalise or cancel them via OrderFinalizer.
+     * Reconciliation cron: find pending Payflex orders that are 30 min - 24 h old
+     * and reconcile each of them against Payflex. This backs up the webhook, so a
+     * problem with one order must not stop the rest of the run.
      */
     public function checkOrderStatus($storeId)
     {
@@ -236,6 +229,7 @@ class PaymentUtil extends AbstractHelper
         $ocf->addAttributeToSelect('increment_id');
         $ocf->addAttributeToSelect('store_id');
         $ocf->addAttributeToFilter('status', ['eq' => 'pending_payment']);
+        $ocf->addFieldToFilter('store_id', $storeId);
         $ocf->addFieldToFilter('created_at', ['from' => $orderFromDateTime, 'to' => $orderToDateTime]);
         $ocf->getSelect()
             ->join(
@@ -252,42 +246,21 @@ class PaymentUtil extends AbstractHelper
 
         foreach ($ocf->getData() as $row) {
             $orderIncrementId = $row['increment_id'];
-            $rowStoreId = $row['store_id'];
-
-            $requestToken = $this->requestTokenFactory->create()->load($orderIncrementId, "order_id");
-            if (!$requestToken->getpayflexId()) {
-                $this->_logger->info(__METHOD__ . "Order does not exist in RequestToken Model");
-                throw new LocalizedException(__('The order no longer exists.'));
-            }
-
-            $payflexOrderId = $requestToken->getpayflexId();
-            $payflexApiResponse = $this->communicationHelper->getTransactionStatus($payflexOrderId, $rowStoreId);
-            if (!$payflexApiResponse) {
-                throw new NotFoundException(__('Transaction status checking response format is incorrect.'));
-            }
-
-            $status = $payflexApiResponse["orderStatus"] ?? null;
-            echo "Payflex: API Response for Order ID: " . $orderIncrementId . " " . $status . PHP_EOL;
 
             $order = $this->orderFactory->create()->loadByIncrementId($orderIncrementId);
             if (!$order->getId()) {
                 continue;
             }
 
-            if ($status == "Approved" && ($payflexApiResponse["merchantReference"] ?? null) == $orderIncrementId) {
-                $order->addStatusHistoryComment(__('Payflex CRON: Payment was successful for order ID: ' . $payflexOrderId))
-                    ->setIsCustomerNotified(true)
-                    ->save();
-                $this->orderFinalizer->capture($order, $payflexApiResponse);
-            } elseif (in_array($status, ["Declined", "Abandoned"], true)) {
-                echo "Payflex: Order ID: " . $orderIncrementId . " " . $status . PHP_EOL;
-                $this->orderFinalizer->cancel(
-                    $order,
-                    'Payflex CRON: Transaction ' . strtolower($status) . ' from Payflex window, Order ID:' . $payflexOrderId
-                );
-            } elseif ($status == "Created") {
-                $this->_logger->info(__METHOD__ . " Order {$orderIncrementId} is still 'Created'; will be re-checked next run.");
+            try {
+                $action = $this->orderReconciler->reconcile($order, 'Payflex CRON');
+            } catch (\Exception $e) {
+                $this->_logger->critical(__METHOD__ . " order:{$orderIncrementId} " . $e->getMessage());
+                echo "Payflex: Order ID: " . $orderIncrementId . " could not be checked" . PHP_EOL;
+                continue;
             }
+
+            echo "Payflex: Order ID: " . $orderIncrementId . " " . $action . PHP_EOL;
         }
 
         $this->_logger->info(__METHOD__ . " Payflex order status cron has executed for store ID " . $storeId . ".");

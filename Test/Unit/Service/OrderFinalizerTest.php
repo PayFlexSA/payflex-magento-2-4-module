@@ -11,7 +11,6 @@ use Magento\Sales\Model\Order\Payment;
 use Magento\Sales\Model\Order\Payment\Transaction;
 use Magento\Sales\Model\Order\Payment\Transaction\Builder as TransactionBuilder;
 use Magento\Sales\Model\Service\InvoiceService;
-use Magento\Store\Model\StoreManagerInterface;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Service\OrderFinalizer;
@@ -38,17 +37,9 @@ class OrderFinalizerTest extends TestCase
         $this->configuration = $this->createMock(Configuration::class);
         $this->orderManagement = $this->createMock(OrderManagementInterface::class);
 
-        // The cancel path asks the store manager for the current store id, so a
-        // bare mock (whose getStore() returns null) would fatal. Wire a store.
-        $store = $this->createMock(\Magento\Store\Api\Data\StoreInterface::class);
-        $store->method('getId')->willReturn(1);
-        $storeManager = $this->createMock(StoreManagerInterface::class);
-        $storeManager->method('getStore')->willReturn($store);
-
         $this->finalizer = new OrderFinalizer(
             $this->createMock(PayflexLogger::class),
             $this->configuration,
-            $storeManager,
             $this->createMock(OrderSender::class),
             $this->createMock(InvoiceService::class),
             $this->createMock(InvoiceSender::class),

@@ -91,6 +91,22 @@ class Communication extends AbstractHelper
         $orderIncrementId = $requestData['merchantReference'];
         $requestData['merchant']['redirectConfirmUrl'] = $this->_getUrl('payflex/order/success', ['_secure' => true, '_nosid' => true, 'mage_order_id' => $orderIncrementId]);
         $requestData['merchant']['redirectCancelUrl'] = $this->_getUrl('payflex/order/fail', ['_secure' => true, '_nosid' => true, 'mage_order_id' => $orderIncrementId]);
+
+        if ($this->_configuration->getWebhookEnabled($storeId)) {
+            $callbackUrl = $this->_getUrl('payflex/webhook/notify', [
+                '_secure'       => true,
+                '_nosid'        => true,
+                'mage_order_id' => $orderIncrementId,
+                'key'           => $this->getWebhookKey($orderIncrementId, $storeId),
+            ]);
+
+            if (strpos($callbackUrl, 'https://') === 0) {
+                $requestData['merchant']['statusCallbackUrl'] = $callbackUrl;
+            } else {
+                $this->_logger->critical(__METHOD__ . " webhook URL is not https, not sending it: {$callbackUrl}");
+            }
+        }
+
         $requestData = json_encode($requestData);
 
         $this->_logger->info(__METHOD__ . " request: " . $requestData);
@@ -105,6 +121,21 @@ class Communication extends AbstractHelper
     public function getEnvironments($storeId = null)
     {
         return $this->environments;
+    }
+
+    /**
+     * Key included in the status callback URL so the webhook can tell a genuine
+     * Payflex callback from an anonymous request.
+     */
+    public function getWebhookKey($orderIncrementId, $storeId = null)
+    {
+        if ($storeId === null) {
+            $storeId = $this->storeManager->getStore()->getId();
+        }
+
+        $secret = (string) $this->_configuration->getPayflexClientSecret($storeId);
+
+        return hash_hmac('sha256', (string) $orderIncrementId, $secret);
     }
 
     /**

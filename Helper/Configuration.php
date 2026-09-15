@@ -72,6 +72,11 @@ class Configuration extends AbstractHelper
         return filter_var($this->_getPayflexStoreConfig("active", $storeId), FILTER_VALIDATE_BOOLEAN);
     }
 
+    public function getWebhookEnabled($storeId = null)
+    {
+        return filter_var($this->_getPayflexStoreConfig("payflex_webhook", $storeId), FILTER_VALIDATE_BOOLEAN);
+    }
+
     public function getDebugFlag($storeId = null)
     {
         return filter_var($this->_getPayflexStoreConfig("debug_flag", $storeId), FILTER_VALIDATE_BOOLEAN);

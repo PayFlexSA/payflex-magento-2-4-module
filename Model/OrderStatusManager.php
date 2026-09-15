@@ -2,13 +2,12 @@
 /**
  * Reconciles a Magento order against its live Payflex status.
  *
- * This is the manual counterpart to the status cron: it can look up the live
- * status from Payflex for a single order and, when they disagree, apply the
- * same corrective action the cron performs automatically (invoice an approved
- * order, or cancel a declined/abandoned one).
+ * This is the manual counterpart to the status cron and the webhook: it can look
+ * up the live status from Payflex for a single order and, when they disagree,
+ * apply the same corrective action those do automatically.
  *
- * Kept deliberately thin — the heavy lifting (transaction + invoice creation,
- * cancellation) is reused from {@see \Payflex\Gateway\Helper\PaymentUtil}.
+ * Kept deliberately thin - the work is reused from
+ * {@see \Payflex\Gateway\Service\OrderReconciler}.
  */
 
 namespace Payflex\Gateway\Model;
@@ -16,37 +15,21 @@ namespace Payflex\Gateway\Model;
 use Magento\Framework\Stdlib\DateTime\TimezoneInterface;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
-use Payflex\Gateway\Helper\Communication;
-use Payflex\Gateway\Helper\PaymentUtil;
 use Payflex\Gateway\Logger\PayflexLogger;
+use Payflex\Gateway\Service\OrderFinalizer;
+use Payflex\Gateway\Service\OrderReconciler;
 
 class OrderStatusManager
 {
-    /** Payflex statuses that mean a successful payment. */
-    private const STATUS_APPROVED = 'Approved';
-
-    /** Payflex statuses that mean the order should be cancelled. */
-    private const FAILED_STATUSES = ['Declined', 'Abandoned'];
-
     /**
      * @var OrderRepositoryInterface
      */
     private $orderRepository;
 
     /**
-     * @var Communication
+     * @var OrderReconciler
      */
-    private $communication;
-
-    /**
-     * @var PaymentUtil
-     */
-    private $paymentUtil;
-
-    /**
-     * @var RequestTokenFactory
-     */
-    private $requestTokenFactory;
+    private $orderReconciler;
 
     /**
      * @var PayflexLogger
@@ -60,16 +43,12 @@ class OrderStatusManager
 
     public function __construct(
         OrderRepositoryInterface $orderRepository,
-        Communication $communication,
-        PaymentUtil $paymentUtil,
-        RequestTokenFactory $requestTokenFactory,
+        OrderReconciler $orderReconciler,
         PayflexLogger $logger,
         TimezoneInterface $localeDate
     ) {
         $this->orderRepository = $orderRepository;
-        $this->communication = $communication;
-        $this->paymentUtil = $paymentUtil;
-        $this->requestTokenFactory = $requestTokenFactory;
+        $this->orderReconciler = $orderReconciler;
         $this->logger = $logger;
         $this->localeDate = $localeDate;
     }
@@ -92,13 +71,13 @@ class OrderStatusManager
             return $this->error(__('Order could not be loaded.'));
         }
 
-        $live = $this->fetchLiveStatus($order);
-        if ($live === null) {
+        $response = $this->orderReconciler->fetchStatus($order);
+        if (empty($response['orderStatus'])) {
             return $this->error(__('Could not retrieve the status from Payflex.'));
         }
 
-        $checkedAt = $this->storeStatus($order, $live);
-
+        $live = $response['orderStatus'];
+        $checkedAt = $this->orderReconciler->storeStatus($order, $live);
         $action = $this->resolveAction($order, $live);
 
         return [
@@ -116,8 +95,8 @@ class OrderStatusManager
     }
 
     /**
-     * Apply the live Payflex status to the Magento order, mirroring the cron:
-     * invoice an approved order, or cancel a declined/abandoned one.
+     * Apply the live Payflex status to the Magento order, mirroring the cron and
+     * the webhook.
      *
      * @param int $orderEntityId
      * @return array
@@ -132,54 +111,29 @@ class OrderStatusManager
             return $this->error(__('Order could not be loaded.'));
         }
 
-        $payflexId = $this->getPayflexId($order);
-        $response = $this->fetchResponse($order);
-        $live = isset($response['orderStatus']) ? $response['orderStatus'] : null;
-
-        if ($live === null) {
+        try {
+            $action = $this->orderReconciler->reconcile($order, 'Payflex admin');
+        } catch (\Exception $e) {
+            $this->logger->error(__METHOD__ . ' ' . $e->getMessage());
             return $this->error(__('Could not retrieve the status from Payflex.'));
         }
 
-        $action = $this->resolveAction($order, $live);
-
-        try {
-            if ($action === 'invoice') {
-                $this->paymentUtil->createTransaction($order, $response);
-                if ($order->canInvoice() && !$order->hasInvoices()) {
-                    $this->paymentUtil->generateInvoice($order);
-                }
-                $order->addCommentToStatusHistory(
-                    __('Payflex: order manually reconciled to "%1" by admin. Payflex Order ID: %2', $live, $payflexId)
-                );
-                $message = __('Payment confirmed and the order has been invoiced.');
-            } elseif ($action === 'cancel') {
-                $this->paymentUtil->orderManagement->cancel($order->getId());
-                $order->addCommentToStatusHistory(
-                    __('Payflex: order manually cancelled by admin (%1). Payflex Order ID: %2', $live, $payflexId)
-                );
-                $message = __('The order has been cancelled.');
-            } else {
-                $message = __('No action was required; the order is already in sync.');
-            }
-        } catch (\Exception $e) {
-            $this->logger->error(__METHOD__ . ' ' . $e->getMessage());
-            return $this->error(__('The order could not be updated: %1', $e->getMessage()));
+        if ($action === OrderReconciler::RESULT_BUSY) {
+            return $this->error(__('This order is already being updated. Please try again in a moment.'));
         }
-
-        $checkedAt = $this->storeStatus($order, $live, $action === 'invoice');
 
         // Reload to report the post-update status.
         $order = $this->orderRepository->get((int) $orderEntityId);
 
         return [
             'success'            => true,
-            'payflex_status'     => $live,
+            'payflex_status'     => $this->storedValue($order, 'orderStatus'),
             'order_status'       => $order->getStatus(),
             'order_status_label' => $this->statusLabel($order),
-            'checked_at'         => $this->formatCheckedAt($checkedAt),
+            'checked_at'         => $this->formatCheckedAt($this->storedValue($order, 'payflex_status_checked_at')),
             'mismatch'           => false,
             'action'             => 'none',
-            'message'            => (string) $message,
+            'message'            => (string) $this->applyMessage($action),
         ];
     }
 
@@ -192,11 +146,11 @@ class OrderStatusManager
      */
     private function resolveAction(OrderInterface $order, $live)
     {
-        if ($live === self::STATUS_APPROVED) {
+        if ($live === OrderFinalizer::STATUS_APPROVED) {
             return $order->canInvoice() ? 'invoice' : 'none';
         }
 
-        if (in_array($live, self::FAILED_STATUSES, true)) {
+        if (in_array($live, OrderFinalizer::FAILED_STATUSES, true)) {
             return $order->canCancel() ? 'cancel' : 'none';
         }
 
@@ -204,100 +158,51 @@ class OrderStatusManager
     }
 
     /**
-     * Live status string from the Payflex API, or null on failure.
+     * The admin message describing what reconciling the order did.
+     *
+     * @param string $action
+     * @return \Magento\Framework\Phrase
+     */
+    private function applyMessage($action)
+    {
+        if ($action === OrderFinalizer::RESULT_CAPTURED) {
+            return __('Payment confirmed and the order has been invoiced.');
+        }
+
+        if ($action === OrderFinalizer::RESULT_CANCELLED) {
+            return __('The order has been cancelled.');
+        }
+
+        if ($action === OrderFinalizer::RESULT_NEEDS_REVIEW) {
+            return __(
+                'Payflex reports this cancelled order as paid. The payment has been recorded against the'
+                . ' order, but the order is still cancelled. Please read the order comments.'
+            );
+        }
+
+        return __('No action was required; the order is already in sync.');
+    }
+
+    /**
+     * Read a value that was stored on the payment, or null when it is not set.
      *
      * @param OrderInterface $order
+     * @param string $key
      * @return string|null
      */
-    private function fetchLiveStatus(OrderInterface $order)
+    private function storedValue(OrderInterface $order, $key)
     {
-        $response = $this->fetchResponse($order);
-
-        return isset($response['orderStatus']) ? $response['orderStatus'] : null;
-    }
-
-    /**
-     * Raw decoded Payflex order response, or an empty array on failure.
-     *
-     * @param OrderInterface $order
-     * @return array
-     */
-    private function fetchResponse(OrderInterface $order)
-    {
-        $payflexId = $this->getPayflexId($order);
-        if ($payflexId === null) {
-            $this->logger->info(__METHOD__ . ' no Payflex order id for order ' . $order->getIncrementId());
-            return [];
-        }
-
-        try {
-            $response = $this->communication->getTransactionStatus($payflexId, $order->getStoreId());
-        } catch (\Exception $e) {
-            $this->logger->error(__METHOD__ . ' ' . $e->getMessage());
-            return [];
-        }
-
-        return is_array($response) ? $response : [];
-    }
-
-    /**
-     * Resolve the Payflex order id for a Magento order from the payment
-     * additional information, falling back to the RequestToken record.
-     *
-     * @param OrderInterface $order
-     * @return string|null
-     */
-    private function getPayflexId(OrderInterface $order)
-    {
-        $payment = $order->getPayment();
-        if ($payment) {
-            $info = (array) $payment->getAdditionalInformation();
-            foreach (['orderId', 'payflex_id'] as $key) {
-                if (!empty($info[$key])) {
-                    return (string) $info[$key];
-                }
-            }
-        }
-
-        $token = $this->requestTokenFactory->create()->load($order->getIncrementId(), 'order_id');
-        if ($token->getPayflexId()) {
-            return (string) $token->getPayflexId();
-        }
-
-        return null;
-    }
-
-    /**
-     * Persist the latest Payflex status (and optionally a processed timestamp)
-     * on the order payment.
-     *
-     * @param OrderInterface $order
-     * @param string $status
-     * @param bool $markProcessed
-     * @return string The raw "checked at" timestamp that was stored (Y-m-d H:i:s).
-     */
-    private function storeStatus(OrderInterface $order, $status, $markProcessed = false)
-    {
-        $now = date('Y-m-d H:i:s');
-
         $payment = $order->getPayment();
         if (!$payment) {
-            return $now;
+            return null;
         }
 
-        $payment->setAdditionalInformation('orderStatus', $status);
-        $payment->setAdditionalInformation('payflex_status_checked_at', $now);
-        if ($markProcessed) {
-            $payment->setAdditionalInformation('payflex_processed_at', $now);
+        $info = (array) $payment->getAdditionalInformation();
+        if (empty($info[$key])) {
+            return null;
         }
 
-        try {
-            $this->orderRepository->save($order);
-        } catch (\Exception $e) {
-            $this->logger->error(__METHOD__ . ' ' . $e->getMessage());
-        }
-
-        return $now;
+        return (string) $info[$key];
     }
 
     /**
@@ -309,6 +214,10 @@ class OrderStatusManager
      */
     private function formatCheckedAt($raw)
     {
+        if (!$raw) {
+            return '';
+        }
+
         try {
             return $this->localeDate->date($raw)->format('M j, Y g:i A');
         } catch (\Exception $e) {

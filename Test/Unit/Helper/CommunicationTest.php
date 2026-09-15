@@ -177,4 +177,27 @@ class CommunicationTest extends TestCase
         // and return the identical result.
         $this->assertSame($config, $communication->getMerchantConfiguration(1));
     }
+
+    public function testWebhookKeyIsStableAndDependsOnTheOrder(): void
+    {
+        $this->configuration->method('getPayflexClientSecret')->willReturn('secret-one');
+        $communication = $this->newCommunication();
+
+        $key = $communication->getWebhookKey('100000001', 1);
+
+        $this->assertSame($key, $communication->getWebhookKey('100000001', 1));
+        $this->assertSame(hash_hmac('sha256', '100000001', 'secret-one'), $key);
+        $this->assertNotSame($key, $communication->getWebhookKey('100000002', 1));
+    }
+
+    public function testWebhookKeyChangesWithTheClientSecret(): void
+    {
+        $this->configuration->method('getPayflexClientSecret')->willReturn('secret-two');
+        $communication = $this->newCommunication();
+
+        $this->assertNotSame(
+            hash_hmac('sha256', '100000001', 'secret-one'),
+            $communication->getWebhookKey('100000001', 1)
+        );
+    }
 }

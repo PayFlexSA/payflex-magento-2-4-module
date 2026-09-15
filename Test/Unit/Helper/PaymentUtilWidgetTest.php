@@ -16,8 +16,7 @@ use Payflex\Gateway\Helper\PaymentUtil;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Model\Configuration as MerchantConfiguration;
 use Payflex\Gateway\Model\ConfigurationFactory;
-use Payflex\Gateway\Model\RequestTokenFactory;
-use Payflex\Gateway\Service\OrderFinalizer;
+use Payflex\Gateway\Service\OrderReconciler;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
@@ -73,8 +72,7 @@ class PaymentUtilWidgetTest extends TestCase
             $this->createMock(UrlInterface::class),
             $this->createMock(DataObjectFactory::class),
             $this->configurationFactory,
-            $this->createMock(RequestTokenFactory::class),
-            $this->createMock(OrderFinalizer::class)
+            $this->createMock(OrderReconciler::class)
         );
     }
 
