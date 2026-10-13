@@ -12,17 +12,8 @@ use Payflex\Gateway\Service\OrderFinalizer;
 use Payflex\Gateway\Service\OrderReconciler;
 
 /**
- * Shared logic for the Payflex return controllers (Success / Fail). Verifies the
- * returned token against the stored request, then reconciles the order against
- * Payflex via {@see OrderReconciler}.
- *
- * Which URL the customer came back through never decides the outcome. It only
- * says which message they see, and is recorded on the order. The order status
- * is always set from the status read back from Payflex, so a customer landing
- * on the cancel link can never cancel a payment that actually went through.
- *
- * By the time the customer gets back here the webhook has usually already
- * finalised the order, so both routes have to cope with that.
+ * Shared logic for the Payflex return controllers (Success / Fail). The order
+ * status always comes from Payflex, not from which link the customer returned by.
  */
 abstract class CommonAction extends Action
 {
@@ -193,10 +184,12 @@ abstract class CommonAction extends Action
     {
         $orderIncrementId = $order->getIncrementId();
 
-        $order->addStatusHistoryComment((string) __(
-            'Payflex: the customer returned to the store using the Payflex cancel link. Payflex Order ID: %1',
-            $payflexId
-        ))->setIsCustomerNotified(false)->save();
+        if (!$this->getRequest()->getParam('TriedTime')) {
+            $order->addStatusHistoryComment((string) __(
+                'Payflex: the customer returned to the store using the Payflex cancel link. Payflex Order ID: %1',
+                $payflexId
+            ))->setIsCustomerNotified(false)->save();
+        }
 
         if ($this->orderFinalizer->isFinalized($order)) {
             $this->_noteCancelAfterPayment($order);
@@ -237,9 +230,6 @@ abstract class CommonAction extends Action
             $this->savePaymentInfoForFailedPayment($order->getPayment());
             $error = "Transaction has been cancelled or declined Order ID: " . $orderIncrementId;
         } else {
-            // Payflex has not settled on a final status. The order is left alone
-            // for the webhook or the cron to finish, and the customer can order
-            // again from their restored cart in the meantime.
             $this->_logger->info(__METHOD__ . " order {$orderIncrementId} left pending, action:{$action}");
             $error = "Your payment was not completed. Your cart has been restored so you can try again.";
         }

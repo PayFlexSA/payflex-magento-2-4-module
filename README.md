@@ -59,6 +59,23 @@ Once the setup commands finish, enable and configure the gateway in the Magento 
 3. Set **Enabled** to *Yes* and save.
 4. Flush the cache (`php bin/magento cache:flush`) if the method does not appear at checkout immediately.
 
+## How Payments Are Confirmed
+
+Orders are confirmed in three ways, so a payment is not lost if one of them fails:
+
+1. **Webhook.** Payflex notifies the store as soon as a payment is approved or abandoned.
+2. **Customer return.** The order is confirmed when the customer comes back from Payflex, if the
+   webhook has not already done so.
+3. **Cron.** Orders still pending payment after 30 minutes are checked against Payflex.
+
+The order status is always read from the Payflex API, never from the incoming request.
+
+The webhook can be turned off under **Stores > Configuration > Sales > Payment Methods > Payflex >
+Payflex Webhook**. Orders are then confirmed by the customer return and the cron only.
+
+If an order was not confirmed, check `var/log/payflex_gateway_<date>.log`, or use the
+**Check Status** and **Update Status** buttons on the admin order view.
+
 ## Upgrading from Previous Versions of This Plugin (<V2.0.0)
 
 1. **Check Pending Orders:**
@@ -87,15 +104,8 @@ Once the setup commands finish, enable and configure the gateway in the Magento 
 
 ## Running the Unit Tests
 
-The module ships with PHPUnit unit tests under `app/code/Payflex/Gateway/Test/Unit/`. They are pure unit tests — no database, web server, or live Payflex connection is required (HTTP is mocked), so they are safe to run on any install.
-
-### Prerequisites
-
-- The module is installed (either manually in `app/code/Payflex/Gateway` or via Composer in `vendor/payflex/magento2-gateway`), and Magento's `composer install` has been run so that PHPUnit and the framework test dependencies are available.
-
-### Run all module unit tests (recommended)
-
-The module ships a small runner, `run-tests.php`, in its root folder. Run it with PHP from anywhere — it locates the Magento root itself, so it works whether the module lives in `app/code` or `vendor`, and regardless of your current directory:
+The unit tests need no database or Payflex connection, so they are safe to run on any install.
+Magento's `composer install` must have been run so that PHPUnit is available.
 
 ```bash
 # Manual (app/code) install:
@@ -105,41 +115,13 @@ php app/code/Payflex/Gateway/run-tests.php
 php vendor/payflex/magento2-gateway/run-tests.php
 ```
 
-Expected result: **13 tests, 21 assertions, all passing**.
-
-The runner generates its own minimal PHPUnit configuration that reuses Magento's standard unit-test bootstrap but omits the Allure reporting extension. This keeps the output clean — see the note below for why that matters.
-
-### Run a single test class or filter
-
-Any extra arguments are passed straight through to PHPUnit. For example:
+Extra arguments are passed to PHPUnit, for example:
 
 ```bash
-# One test file (path is relative to the module's Test/Unit folder or absolute):
-php app/code/Payflex/Gateway/run-tests.php Test/Unit/Service/OrderFinalizerTest.php
-
-# Or filter by test-method name:
 php app/code/Payflex/Gateway/run-tests.php --filter versionCheck
 ```
 
-### Running via PHPUnit directly (alternative)
-
-If you prefer to invoke PHPUnit yourself against Magento's stock config, run this from your **Magento root directory**:
-
-```bash
-php -d memory_limit=-1 vendor/bin/phpunit \
-  -c dev/tests/unit/phpunit.xml.dist \
-  app/code/Payflex/Gateway/Test/Unit
-```
-
-> **Note — the Allure warning.** Magento's stock `dev/tests/unit/phpunit.xml.dist` registers the Allure reporting extension with a *relative* config path (`allure/allure.config.php`). Because the extension resolves that path against the current working directory rather than the config file's location, running from the Magento root produces a noisy `Config file allure/allure.config.php doesn't exist` bootstrap warning. (Running from `dev/tests/unit` makes it resolve instead — but then Allure loads and dumps JSON result files into `dev/tests/unit/var/allure-results`.) This is a stock Magento/Allure quirk, **not** something this module introduces — it affects any module's unit tests — and it never changes the test results. The `run-tests.php` runner above avoids it entirely by not loading Allure.
-
-### What the tests cover
-
-| Test | Covers |
-|------|--------|
-| `Helper/ConfigurationTest` | `versionCheck()` boundaries (incl. `-pN` suffixes and the max bound); order status/state fallback to `processing`; boolean flag casting |
-| `Helper/CommunicationTest` | Environment resolution (sandbox vs production URLs/keys); OAuth token cache-hit vs fresh-fetch (HTTP mocked) |
-| `Service/OrderFinalizerTest` | The finalisation decision matrix: reject when not Approved; reject Approved-but-mismatched-reference; capture when Approved with a matching reference |
+The tests can also be run from the **Payflex Support** page in the admin.
 
 ## Additional Information
 

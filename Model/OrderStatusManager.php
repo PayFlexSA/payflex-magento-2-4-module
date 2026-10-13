@@ -1,13 +1,6 @@
 <?php
 /**
- * Reconciles a Magento order against its live Payflex status.
- *
- * This is the manual counterpart to the status cron and the webhook: it can look
- * up the live status from Payflex for a single order and, when they disagree,
- * apply the same corrective action those do automatically.
- *
- * Kept deliberately thin - the work is reused from
- * {@see \Payflex\Gateway\Service\OrderReconciler}.
+ * Admin Check Status / Update Status actions for a single order.
  */
 
 namespace Payflex\Gateway\Model;

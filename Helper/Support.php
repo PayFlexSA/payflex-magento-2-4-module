@@ -443,25 +443,8 @@ class Support extends AbstractHelper
     }
 
     /**
-     * Run the module's unit-test suite and return a structured, render-ready
-     * result for the admin Support page.
-     *
-     * It shells out to the same standalone runner used on the command line
-     * (run-tests.php) but asks PHPUnit for a JUnit XML log instead of console
-     * output, then parses that into a per-test pass/fail breakdown. Running the
-     * suite in a separate CLI process keeps it isolated from the web request's
-     * bootstrap and avoids any PHPUnit/Magento state bleeding into admin.
-     *
-     * The shape returned is always the same so the template can render it
-     * unconditionally:
-     *   [
-     *     'available' => bool,     // false when the suite could not be run at all
-     *     'passed'    => bool,     // true only when every test passed
-     *     'summary'   => string,   // one-line human summary (or the error reason)
-     *     'counts'    => ['total'=>int,'passed'=>int,'failed'=>int,'skipped'=>int],
-     *     'suites'    => [ ['name'=>string, 'tests'=>[ ['name','description','status','message','time'] ]] ],
-     *     'exit_code' => int|null,
-     *   ]
+     * Run run-tests.php in a separate CLI process and return the per-test
+     * results for the admin Support page.
      *
      * @return array
      */
@@ -493,8 +476,6 @@ class Support extends AbstractHelper
             return $this->testRunError('Could not create a temporary file for the test results.');
         }
 
-        // --log-junit gives machine-readable results; --no-output keeps the child
-        // quiet (both also suppress the runner's default --testdox reporter).
         $command = escapeshellarg($php)
             . ' -d memory_limit=-1 '
             . escapeshellarg($runner)
@@ -517,9 +498,6 @@ class Support extends AbstractHelper
         }
 
         fclose($pipes[0]);
-        // Drain both streams so the child never blocks on a full pipe; stdout is
-        // not needed (results come from the JUnit file), stderr is kept for
-        // diagnostics if the run fails.
         stream_get_contents($pipes[1]);
         $stderr = (string) stream_get_contents($pipes[2]);
         fclose($pipes[1]);
@@ -538,9 +516,7 @@ class Support extends AbstractHelper
     }
 
     /**
-     * Turn PHPUnit's JUnit XML into the structured result described on
-     * runUnitTests(). Testcases are grouped by their (shortened) class name and
-     * each is given a plain-English description derived from its method name.
+     * Turn PHPUnit's JUnit XML into per-suite test results.
      *
      * @param string   $xml
      * @param int|null $exitCode
@@ -630,10 +606,7 @@ class Support extends AbstractHelper
     }
 
     /**
-     * Derive a readable sentence from a test method name, mirroring PHPUnit's
-     * own "testdox" formatting so the browser readout matches the CLI output.
-     * e.g. "testCreateTransactionRejectsWhenNotApproved"
-     *        => "Create transaction rejects when not approved".
+     * Turn a test method name into a sentence, like PHPUnit's testdox output.
      *
      * @param string $method
      * @return string
@@ -644,15 +617,11 @@ class Support extends AbstractHelper
         $name = preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', ' ', $name);
         $name = preg_replace('/(?<=[A-Za-z])(?=[0-9])/', ' ', $name);
         $name = trim(str_replace('_', ' ', $name));
-        // Match PHPUnit's testdox casing (sentence case) so the browser readout
-        // reads identically to the CLI "--testdox" output.
         return $name === '' ? (string) $method : ucfirst(strtolower($name));
     }
 
     /**
-     * Locate a PHP *CLI* binary usable for the test subprocess. Under php-fpm or
-     * Apache the running SAPI binary (PHP_BINARY) is not the CLI interpreter, so
-     * those are skipped in favour of a real "php" executable.
+     * Locate the PHP CLI binary. Under php-fpm or Apache, PHP_BINARY is not it.
      *
      * @return string|null
      */
@@ -681,8 +650,7 @@ class Support extends AbstractHelper
     }
 
     /**
-     * Uniform "could not run" result so the template renders errors the same way
-     * as a normal (but failing) run.
+     * Result returned when the tests could not be run.
      *
      * @param string $message
      * @return array

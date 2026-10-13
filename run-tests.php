@@ -1,30 +1,7 @@
 <?php
 /**
- * Payflex Gateway — standalone unit-test runner.
- *
- * Runs the module's PHPUnit unit tests with a minimal, self-contained PHPUnit
- * configuration so the output is clean and easy to read.
- *
- * Why this script exists:
- *   1. Magento's stock dev/tests/unit/phpunit.xml.dist registers the Allure
- *      reporting extension with a *relative* config path. Depending on the
- *      working directory that either emits a noisy "Config file
- *      allure/allure.config.php doesn't exist" bootstrap warning, or (when it
- *      does resolve) dumps a pile of JSON result files into
- *      dev/tests/unit/var/allure-results. Neither is wanted just to run unit
- *      tests. This runner generates its own config that omits Allure entirely.
- *   2. The module may live in either app/code/Payflex/Gateway (manual install)
- *      or vendor/payflex/magento2-gateway (Composer install). This script
- *      locates itself and the Magento root at runtime, so it works from either
- *      location and from any current working directory.
- *
- * Usage (from anywhere):
- *   php app/code/Payflex/Gateway/run-tests.php
- *   php vendor/payflex/magento2-gateway/run-tests.php
- *
- * Any extra arguments are forwarded to PHPUnit, e.g.:
- *   php .../run-tests.php --filter versionCheck
- *   php .../run-tests.php Test/Unit/Service/OrderFinalizerTest.php
+ * Runs the module's unit tests without Magento's Allure extension, from either
+ * app/code or vendor. Extra arguments are passed to PHPUnit.
  *
  * @copyright Payflex
  */
@@ -44,11 +21,6 @@ if (!is_dir($moduleTests)) {
     exit(1);
 }
 
-/**
- * Walk up the directory tree from the module until we find a Magento root — the
- * directory that contains both Composer's autoloader and Magento's unit-test
- * bootstrap. This resolves correctly whether the module is in app/code or vendor.
- */
 $findMagentoRoot = static function (string $start): ?string {
     $dir = $start;
     while (true) {
@@ -59,7 +31,7 @@ $findMagentoRoot = static function (string $start): ?string {
         }
         $parent = dirname($dir);
         if ($parent === $dir) {
-            return null; // reached the filesystem root
+            return null;
         }
         $dir = $parent;
     }
@@ -79,7 +51,6 @@ $bootstrap    = $magentoRoot . '/dev/tests/unit/framework/bootstrap.php';
 $phpunitEntry = $magentoRoot . '/vendor/phpunit/phpunit/phpunit';
 $phpunitBin   = $magentoRoot . '/vendor/bin/phpunit';
 
-// Prefer the real PHPUnit entry point; fall back to the bin/ wrapper.
 $phpunit = is_file($phpunitEntry) ? $phpunitEntry : $phpunitBin;
 
 if (!is_file($phpunit)) {
@@ -88,12 +59,6 @@ if (!is_file($phpunit)) {
     exit(1);
 }
 
-/**
- * Generate a minimal PHPUnit config on the fly. It reuses Magento's own unit
- * bootstrap (so the framework is initialised exactly as usual) but deliberately
- * omits the <extensions> block, which is where the Allure extension is wired up
- * in the stock config. No Allure => no warning and no result artifacts.
- */
 $configXml = <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -121,47 +86,31 @@ if ($configFile === null || file_put_contents($configFile, $configXml) === false
     exit(1);
 }
 
-// Always remove the temp config, even if PHPUnit or PHP exits unexpectedly.
 register_shutdown_function(static function () use ($configFile): void {
     if (is_file($configFile)) {
         @unlink($configFile);
     }
 });
 
-// Build the command. Forward any extra CLI args (e.g. --filter, a test path).
-//
-// Path-like arguments (anything not starting with '-') are resolved against the
-// module so a path such as "Test/Unit/Service/OrderFinalizerTest.php" or
-// "Service/OrderFinalizerTest.php" works no matter the current directory. If the
-// argument doesn't match a module path it is passed through unchanged, so
-// option values like the "versionCheck" in "--filter versionCheck" are untouched.
+// Test paths may be given relative to the module or its Test/Unit folder.
 $resolveArg = static function (string $arg) use ($moduleDir, $moduleTests): string {
     if ($arg === '' || $arg[0] === '-') {
-        return $arg; // an option/flag or its value — leave it alone
+        return $arg;
     }
     if (file_exists($arg)) {
-        return $arg; // already valid relative to CWD, or absolute
+        return $arg;
     }
     foreach ([$moduleDir . '/' . $arg, $moduleTests . '/' . $arg] as $candidate) {
         if (file_exists($candidate)) {
             return $candidate;
         }
     }
-    return $arg; // not a module path — pass through and let PHPUnit decide
+    return $arg;
 };
 
 $extraArgs = array_slice($argv, 1);
 
-/**
- * Default to PHPUnit's "testdox" reporter, which prints one readable line per
- * test (a plain-English sentence derived from the test method name) so you can
- * see exactly what each test verifies rather than an anonymous row of dots.
- *
- * This is only added when the caller hasn't already chosen how output should be
- * produced — e.g. their own --testdox, any --log-* (such as --log-junit used by
- * the admin Support page), --teamcity or --no-output. That keeps machine-readable
- * runs clean while making the interactive run informative.
- */
+// Default to --testdox unless the caller picked an output format.
 $controlsOutput = static function (array $args): bool {
     foreach ($args as $a) {
         if (strncmp($a, '--testdox', 9) === 0

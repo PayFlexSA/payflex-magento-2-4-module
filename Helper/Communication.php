@@ -313,11 +313,7 @@ class Communication extends AbstractHelper
     }
 
     /**
-     * Perform the actual HTTP request via cURL.
-     *
-     * Kept as a single protected method so it can be substituted in unit tests
-     * and so the transport can be swapped for the framework HTTP client later
-     * without touching the callers above.
+     * Perform the HTTP request via cURL. Protected so unit tests can replace it.
      */
     protected function sendRequest($url, $header = [], $params = [], $method = 'GET', $postBody = null)
     {

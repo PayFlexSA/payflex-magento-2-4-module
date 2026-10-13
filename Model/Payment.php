@@ -6,9 +6,6 @@ namespace Payflex\Gateway\Model;
 
 class Payment extends \Magento\Payment\Model\Method\AbstractMethod
 {
-    // NB: $_logger is declared (protected) by AbstractModel; we reuse it for the
-    // Payflex logger rather than redeclaring it.
-
     protected $_code;
     
     protected $_infoBlockType = 'Payflex\Gateway\Block\Info';
