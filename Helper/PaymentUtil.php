@@ -4,7 +4,6 @@ namespace Payflex\Gateway\Helper;
 use Magento\Framework\App\Helper\AbstractHelper;
 use Magento\Framework\App\Helper\Context;
 use Magento\Framework\DataObject\Factory as DataObjectFactory;
-use Magento\Framework\UrlInterface;
 use Magento\Quote\Model\QuoteFactory;
 use Magento\Sales\Model\OrderFactory;
 use Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
@@ -38,9 +37,6 @@ class PaymentUtil extends AbstractHelper
     /** @var OrderFactory */
     private $orderFactory;
 
-    /** @var UrlInterface */
-    private $urlBuilder;
-
     /** @var DataObjectFactory */
     private $dataObjectFactory;
 
@@ -59,7 +55,6 @@ class PaymentUtil extends AbstractHelper
         OrderCollectionFactory $orderCollectionFactory,
         QuoteFactory $quoteFactory,
         OrderFactory $orderFactory,
-        UrlInterface $urlBuilder,
         DataObjectFactory $dataObjectFactory,
         ConfigurationFactory $configurationFactory,
         OrderReconciler $orderReconciler
@@ -72,17 +67,9 @@ class PaymentUtil extends AbstractHelper
         $this->orderCollectionFactory = $orderCollectionFactory;
         $this->quoteFactory = $quoteFactory;
         $this->orderFactory = $orderFactory;
-        $this->urlBuilder = $urlBuilder;
         $this->dataObjectFactory = $dataObjectFactory;
         $this->configurationFactory = $configurationFactory;
         $this->orderReconciler = $orderReconciler;
-    }
-
-    public function buildRedirectUrl()
-    {
-        $url = $this->urlBuilder->getUrl('payflex/order/redirect', ['_secure' => true]);
-        $this->_logger->info(__METHOD__ . " url: {$url} ");
-        return $url;
     }
 
     public function saveInvalidRefundResponse($payment, $responseText)

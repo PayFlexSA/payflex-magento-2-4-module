@@ -102,8 +102,8 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         $this->_logger->info(__METHOD__);
         $infoInstance = $this->getInfoInstance();
 
-        // Additional information is (re)built later in the session-creation flow
-        // (see ApiCommonHelper / UrlCreator), so we start it clean here.
+        // Additional information is written by UrlCreator once the order is placed,
+        // so we start it clean here.
         $infoInstance->setAdditionalInformation([]);
         $infoInstance->save();
 

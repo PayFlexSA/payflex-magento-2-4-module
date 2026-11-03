@@ -4,7 +4,6 @@ namespace Payflex\Gateway\Test\Unit\Helper;
 
 use Magento\Framework\App\Helper\Context;
 use Magento\Framework\DataObject\Factory as DataObjectFactory;
-use Magento\Framework\UrlInterface;
 use Magento\Quote\Model\QuoteFactory;
 use Magento\Sales\Model\OrderFactory;
 use Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
@@ -69,7 +68,6 @@ class PaymentUtilWidgetTest extends TestCase
             $this->createMock(OrderCollectionFactory::class),
             $this->createMock(QuoteFactory::class),
             $this->createMock(OrderFactory::class),
-            $this->createMock(UrlInterface::class),
             $this->createMock(DataObjectFactory::class),
             $this->configurationFactory,
             $this->createMock(OrderReconciler::class)

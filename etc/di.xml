@@ -9,6 +9,4 @@
             </argument>
         </arguments>
     </type>
-    <preference for="Payflex\Gateway\Api\PayflexManagementInterface" type="Payflex\Gateway\Model\Api\PayflexManagement" />
-    <preference for="Payflex\Gateway\Api\GuestPayflexManagementInterface" type="Payflex\Gateway\Model\Api\GuestPayflexManagement" />
 </config>

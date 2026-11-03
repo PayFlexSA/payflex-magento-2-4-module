@@ -2,10 +2,10 @@
 namespace Payflex\Gateway\Helper\Payflex;
 
 use Magento\Catalog\Model\ProductFactory;
-use Magento\Checkout\Model\Session as CheckoutSession;
 use Magento\Framework\DataObject\Factory as DataObjectFactory;
 use Magento\Framework\Exception\State\InvalidTransitionException;
 use Magento\Framework\Module\ModuleListInterface;
+use Magento\Sales\Model\Order;
 use Payflex\Gateway\Helper\Communication;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Helper\Support;
@@ -14,7 +14,7 @@ use Payflex\Gateway\Model\RequestTokenFactory;
 use Payflex\Gateway\Model\ResourceModel\RequestToken as RequestTokenResource;
 
 /**
- * Builds the Payflex "create session" request from a quote, calls Payflex to
+ * Builds the Payflex "create session" request from an order, calls Payflex to
  * obtain the hosted-checkout redirect URL, and persists the resulting request
  * token so the return controllers can verify it later.
  */
@@ -35,9 +35,6 @@ class UrlCreator
     /** @var RequestTokenFactory */
     private $requestTokenFactory;
 
-    /** @var CheckoutSession */
-    private $checkoutSession;
-
     /** @var ModuleListInterface */
     private $moduleList;
 
@@ -56,7 +53,6 @@ class UrlCreator
         Communication $communication,
         Support $support,
         RequestTokenFactory $requestTokenFactory,
-        CheckoutSession $checkoutSession,
         ModuleListInterface $moduleList,
         DataObjectFactory $dataObjectFactory,
         ProductFactory $productFactory,
@@ -67,20 +63,22 @@ class UrlCreator
         $this->_communication = $communication;
         $this->support = $support;
         $this->requestTokenFactory = $requestTokenFactory;
-        $this->checkoutSession = $checkoutSession;
         $this->moduleList = $moduleList;
         $this->dataObjectFactory = $dataObjectFactory;
         $this->productFactory = $productFactory;
         $this->requestTokenResource = $requestTokenResource;
     }
 
-    public function CreateUrl(\Magento\Quote\Model\Quote $quote)
+    /**
+     * Create a Payflex session for the order and return the Payflex redirect URL.
+     */
+    public function createUrl(Order $order)
     {
         $this->_logger->info(__METHOD__);
-        $requestData = $this->_buildPayflexRequestData($quote);
+        $requestData = $this->_buildPayflexRequestData($order);
 
         try {
-            $response = $this->_communication->getPayflexPage($requestData);
+            $response = $this->_communication->getPayflexPage($requestData, $order->getStoreId());
         } catch (\Exception $ex) {
             $this->_logger->error(__METHOD__ . $ex->getMessage());
             throw new InvalidTransitionException(__('Error in communication with Payflex:' . $ex->getMessage()));
@@ -92,7 +90,7 @@ class UrlCreator
             throw new InvalidTransitionException(__($error));
         }
 
-        $orderIncrementId = $quote->getReservedOrderId();
+        $orderIncrementId = $order->getIncrementId();
         $existingIds = $this->requestTokenResource->getPayflexIds($orderIncrementId);
         if (!empty($existingIds)) {
             $this->_logger->warning(__METHOD__ . " order {$orderIncrementId} already has Payflex order(s) "
@@ -109,70 +107,65 @@ class UrlCreator
         ]);
         $requestTokenModel->save();
 
-        $this->checkoutSession->setpayflexQuoteId($quote->getId());
-
         //Log the Payflex ID that is received from the API.
         $this->_logger->info(__METHOD__ . " Payflex Order ID: " . $response['orderId']);
 
-        //Add the Payflex ID to the quote.
-        $info = [];
-        $quotePayment = $quote->getPayment();
-        if (!empty($quotePayment->getAdditionalInformation())) {
-            $source = $this->dataObjectFactory->create($quotePayment->getAdditionalInformation());
-            $info["cartId"]      = $source->getData("cartId");
-            $info["guestEmail"]  = $source->getData("guestEmail");
-            $info["orderId"]     = $response['orderId'];
-            $info["orderStatus"] = "Not Set";
+        //Add the Payflex ID to the order payment.
+        $payment = $order->getPayment();
+        $info = $payment->getAdditionalInformation();
+        $info["orderId"]     = $response['orderId'];
+        $info["orderStatus"] = "Not Set";
 
-            $info["merchantReference"] = $quote->getReservedOrderId();
-            $info["amount"]            = (string)$quote->getBaseGrandTotal();
-            $info["currency"]          = (string)$quote->getBaseCurrencyCode();
+        $info["merchantReference"] = $orderIncrementId;
+        $info["amount"]            = (string)$order->getBaseGrandTotal();
+        $info["currency"]          = (string)$order->getBaseCurrencyCode();
 
-            // Record the plugin version in use at placement time, for support/debugging.
-            $moduleInfo = $this->moduleList->getOne("Payflex_Gateway");
-            if (isset($moduleInfo["setup_version"])) {
-                $info["payflex_module_version"] = $moduleInfo["setup_version"];
-            }
+        // Record the plugin version in use at placement time, for support/debugging.
+        $moduleInfo = $this->moduleList->getOne("Payflex_Gateway");
+        if (isset($moduleInfo["setup_version"])) {
+            $info["payflex_module_version"] = $moduleInfo["setup_version"];
         }
-        $quotePayment->setAdditionalInformation($info);
-        $quotePayment->save();
+        $payment->setAdditionalInformation($info);
+        $payment->save();
 
         return (string)$response['redirectUrl'];
     }
 
-    private function _buildPayflexRequestData(\Magento\Quote\Model\Quote $quote)
+    private function _buildPayflexRequestData(Order $order)
     {
-        $orderIncrementId = $quote->getReservedOrderId();
+        $orderIncrementId = $order->getIncrementId();
         $this->_logger->info(__METHOD__ . " orderIncrementId:{$orderIncrementId}");
 
-        $customerInfo = $this->_loadCustomerInfo($quote);
+        $billingAddress = $order->getBillingAddress();
+        $shippingAddress = $this->_getShippingAddress($order);
+        $customerInfo = $this->_loadCustomerInfo($order);
 
         $platform_info_string = 'Magento ' . $this->support->getMagentoVersion();
 
         //format order
         $param = [];
-        $param['amount'] = $quote->getBaseGrandTotal();
+        $param['amount'] = $order->getBaseGrandTotal();
 
         $param['consumer']['phoneNumber'] = $customerInfo->getPhoneNumber();
         $param['consumer']['givenNames']  = $customerInfo->getFirstname();
         $param['consumer']['surname']     = $customerInfo->getSurname();
-        $param['consumer']['email']       = $quote->getBillingAddress()->getEmail();
+        $param['consumer']['email']       = $order->getCustomerEmail();
 
         $param['billing']['addressLine1'] = $customerInfo->getBillingStreet1();
         $param['billing']['addressLine2'] = $customerInfo->getBillingStreet2();
         $param['billing']['suburb']       = '';
-        $param['billing']['city']         = $quote->getBillingAddress()->getCity();
-        $param['billing']['postcode']     = $quote->getBillingAddress()->getPostcode();
-        $param['billing']['state']        = $quote->getBillingAddress()->getRegion() ? $quote->getBillingAddress()->getRegion() : '';
-        $param['billing']['country']      = $quote->getBillingAddress()->getCountry();
+        $param['billing']['city']         = $billingAddress->getCity();
+        $param['billing']['postcode']     = $billingAddress->getPostcode();
+        $param['billing']['state']        = $billingAddress->getRegion() ? $billingAddress->getRegion() : '';
+        $param['billing']['country']      = $billingAddress->getCountryId();
 
         $param['shipping']['addressLine1'] = $customerInfo->getShippingStreet1();
         $param['shipping']['addressLine2'] = $customerInfo->getShippingStreet2();
         $param['shipping']['suburb']       = '';
-        $param['shipping']['city']         = $quote->getShippingAddress()->getCity();
-        $param['shipping']['postcode']     = $quote->getShippingAddress()->getPostcode();
-        $param['shipping']['state']        = $quote->getShippingAddress()->getRegion();
-        $param['shipping']['country']      = $quote->getShippingAddress()->getCountry();
+        $param['shipping']['city']         = $shippingAddress->getCity();
+        $param['shipping']['postcode']     = $shippingAddress->getPostcode();
+        $param['shipping']['state']        = $shippingAddress->getRegion();
+        $param['shipping']['country']      = $shippingAddress->getCountryId();
 
         $param['merchantSystemInformation']['plugin_version']     = $this->support->getModuleVersion();
         $param['merchantSystemInformation']['php_version']        = $this->support->getPHPVersion();
@@ -181,40 +174,40 @@ class UrlCreator
         $param['description'] = '';
 
         $productManager = $this->productFactory->create();
-        //format all items in cart
-        foreach ($quote->getAllVisibleItems() as $item) {
+        //format all items in the order
+        foreach ($order->getAllVisibleItems() as $item) {
             /** @var \Magento\Catalog\Model\Product $product */
             $product = $productManager->load($item->getProductId());
             $param['items'][] = [
                 'description' => $product->getDescription(),
                 'name'        => $item->getName(),
                 'sku'         => $item->getSku(),
-                'quantity'    => $item->getQty(),
+                'quantity'    => $item->getQtyOrdered(),
                 'price'       => $item->getBaseRowTotalInclTax(),
             ];
         }
 
         $param['merchantReference'] = $orderIncrementId;
-        $param['taxAmount'] = $quote->getShippingAddress()->getBaseTaxAmount();
-        $param['shippingAmount'] = $quote->getShippingAddress()->getBaseShippingAmount();
+        $param['taxAmount'] = $order->getBaseTaxAmount();
+        $param['shippingAmount'] = $order->getBaseShippingAmount();
 
         $this->_logger->info(__METHOD__ . " param:" . var_export($param, true));
         return $param;
     }
 
-    private function _loadCustomerInfo(\Magento\Quote\Model\Quote $quote)
+    private function _loadCustomerInfo(Order $order)
     {
-        $customerId = $quote->getCustomerId();
+        $customerId = $order->getCustomerId();
         $this->_logger->info(__METHOD__ . " customerId:{$customerId}");
         $customerInfo = $this->dataObjectFactory->create();
 
         $customerInfo->setId($customerId);
-        $customerInfo->setFirstname($this->_getCustomerFirstname($quote));
-        $customerInfo->setSurname($this->_getCustomerSurname($quote));
-        $customerInfo->setEmail($quote->getCustomerEmail());
+        $customerInfo->setFirstname($this->_getCustomerFirstname($order));
+        $customerInfo->setSurname($this->_getCustomerSurname($order));
+        $customerInfo->setEmail($order->getCustomerEmail());
 
         try {
-            $billingAddress = $quote->getBillingAddress();
+            $billingAddress = $order->getBillingAddress();
             if ($billingAddress) {
                 $customerInfo->setPhoneNumber($billingAddress->getTelephone());
 
@@ -229,7 +222,7 @@ class UrlCreator
                 }
                 $customerInfo->setFullAddress($streetFull);
             }
-            if ($shippingAddress = $quote->getShippingAddress()) {
+            if ($shippingAddress = $this->_getShippingAddress($order)) {
                 $shippingStreetData = $shippingAddress->getStreet();
                 if (isset($shippingStreetData[0])) {
                     $customerInfo->setShippingStreet1($shippingStreetData[0]);
@@ -246,16 +239,31 @@ class UrlCreator
     }
 
     /**
+     * The order shipping address, or the billing address for virtual orders.
+     *
+     * @return \Magento\Sales\Model\Order\Address
+     */
+    private function _getShippingAddress(Order $order)
+    {
+        $shippingAddress = $order->getShippingAddress();
+        if (!$shippingAddress) {
+            return $order->getBillingAddress();
+        }
+
+        return $shippingAddress;
+    }
+
+    /**
      * Retrieve customer surname name
      *
      * @return string
      */
-    private function _getCustomerSurname(\Magento\Quote\Model\Quote $quote)
+    private function _getCustomerSurname(Order $order)
     {
-        if ($quote->getCustomerLastname()) {
-            $customerSurname = $quote->getCustomerLastname();
+        if ($order->getCustomerLastname()) {
+            $customerSurname = $order->getCustomerLastname();
         } else {
-            $customerSurname = $quote->getBillingAddress()->getLastname();
+            $customerSurname = $order->getBillingAddress()->getLastname();
         }
 
         return $customerSurname;
@@ -266,12 +274,12 @@ class UrlCreator
      *
      * @return string
      */
-    private function _getCustomerFirstname(\Magento\Quote\Model\Quote $quote)
+    private function _getCustomerFirstname(Order $order)
     {
-        if ($quote->getCustomerFirstname()) {
-            $customerFirstname = $quote->getCustomerFirstname();
+        if ($order->getCustomerFirstname()) {
+            $customerFirstname = $order->getCustomerFirstname();
         } else {
-            $customerFirstname = $quote->getBillingAddress()->getFirstname();
+            $customerFirstname = $order->getBillingAddress()->getFirstname();
         }
 
         return $customerFirstname;
