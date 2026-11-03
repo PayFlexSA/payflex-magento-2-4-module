@@ -8,8 +8,7 @@ use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Payment;
 use Payflex\Gateway\Helper\Communication;
 use Payflex\Gateway\Logger\PayflexLogger;
-use Payflex\Gateway\Model\RequestToken;
-use Payflex\Gateway\Model\RequestTokenFactory;
+use Payflex\Gateway\Model\ResourceModel\RequestToken as RequestTokenResource;
 use Payflex\Gateway\Service\OrderFinalizer;
 use Payflex\Gateway\Service\OrderReconciler;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -26,8 +25,8 @@ class OrderReconcilerTest extends TestCase
     /** @var OrderFinalizer&MockObject */
     private $orderFinalizer;
 
-    /** @var RequestTokenFactory&MockObject */
-    private $requestTokenFactory;
+    /** @var RequestTokenResource&MockObject */
+    private $requestTokenResource;
 
     /** @var LockManagerInterface&MockObject */
     private $lockManager;
@@ -39,17 +38,14 @@ class OrderReconcilerTest extends TestCase
     {
         $this->communication = $this->createMock(Communication::class);
         $this->orderFinalizer = $this->createMock(OrderFinalizer::class);
-        $this->requestTokenFactory = $this->getMockBuilder(RequestTokenFactory::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['create'])
-            ->getMock();
+        $this->requestTokenResource = $this->createMock(RequestTokenResource::class);
         $this->lockManager = $this->createMock(LockManagerInterface::class);
 
         $this->reconciler = new OrderReconciler(
             $this->createMock(PayflexLogger::class),
             $this->communication,
             $this->orderFinalizer,
-            $this->requestTokenFactory,
+            $this->requestTokenResource,
             $this->lockManager
         );
     }
@@ -116,24 +112,12 @@ class OrderReconcilerTest extends TestCase
         $this->lockManager->expects($this->once())->method('unlock');
         $this->orderFinalizer->method('isFinalized')->willReturn(false);
         $this->communication->expects($this->never())->method('getTransactionStatus');
+        $this->requestTokenResource->method('getPayflexIds')->willReturn([]);
 
-        $payment = $this->createMock(Payment::class);
-        $payment->method('getAdditionalInformation')->willReturn([]);
-
-        $order = $this->createMock(Order::class);
-        $order->method('getIncrementId')->willReturn('100000001');
-        $order->method('getPayment')->willReturn($payment);
-
-        $token = $this->getMockBuilder(RequestToken::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getPayflexId'])
-            ->getMock();
-        $token->method('load')->willReturnSelf();
-        $token->method('getPayflexId')->willReturn(null);
-        $this->requestTokenFactory->method('create')->willReturn($token);
-
-        $this->assertSame(OrderFinalizer::RESULT_NONE, $this->reconciler->reconcile($order, 'Payflex webhook'));
+        $this->assertSame(
+            OrderFinalizer::RESULT_NONE,
+            $this->reconciler->reconcile($this->orderWithoutPayflexId(), 'Payflex webhook')
+        );
     }
 
     public function testReconcileHandsTheLiveStatusToTheFinalizer(): void
@@ -160,54 +144,31 @@ class OrderReconcilerTest extends TestCase
 
     public function testPayflexIdIsReadFromThePaymentWhenPresent(): void
     {
-        $this->requestTokenFactory->expects($this->never())->method('create');
+        $this->requestTokenResource->expects($this->never())->method('getPayflexIds');
 
         $this->assertSame('pf-from-payment', $this->reconciler->getPayflexId($this->orderWithPayflexId('pf-from-payment')));
     }
 
     public function testPayflexIdFallsBackToTheStoredRequestToken(): void
     {
-        $payment = $this->createMock(Payment::class);
-        $payment->method('getAdditionalInformation')->willReturn([]);
+        $this->requestTokenResource->method('getPayflexIds')->with('100000001')->willReturn(['pf-from-token']);
 
-        $order = $this->createMock(Order::class);
-        $order->method('getIncrementId')->willReturn('100000001');
-        $order->method('getPayment')->willReturn($payment);
+        $this->assertSame('pf-from-token', $this->reconciler->getPayflexId($this->orderWithoutPayflexId()));
+    }
 
-        $token = $this->getMockBuilder(RequestToken::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getPayflexId'])
-            ->getMock();
-        $token->method('load')->willReturnSelf();
-        $token->method('getPayflexId')->willReturn('pf-from-token');
+    public function testPayflexIdFallsBackToTheNewestStoredRequestToken(): void
+    {
+        $this->requestTokenResource->method('getPayflexIds')->willReturn(['pf-oldest', 'pf-middle', 'pf-newest']);
 
-        $this->requestTokenFactory->method('create')->willReturn($token);
-
-        $this->assertSame('pf-from-token', $this->reconciler->getPayflexId($order));
+        $this->assertSame('pf-newest', $this->reconciler->getPayflexId($this->orderWithoutPayflexId()));
     }
 
     public function testFetchStatusReturnsAnEmptyArrayWhenNoPayflexIdIsKnown(): void
     {
-        $payment = $this->createMock(Payment::class);
-        $payment->method('getAdditionalInformation')->willReturn([]);
-
-        $order = $this->createMock(Order::class);
-        $order->method('getIncrementId')->willReturn('100000001');
-        $order->method('getPayment')->willReturn($payment);
-
-        $token = $this->getMockBuilder(RequestToken::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['load'])
-            ->addMethods(['getPayflexId'])
-            ->getMock();
-        $token->method('load')->willReturnSelf();
-        $token->method('getPayflexId')->willReturn(null);
-
-        $this->requestTokenFactory->method('create')->willReturn($token);
+        $this->requestTokenResource->method('getPayflexIds')->willReturn([]);
         $this->communication->expects($this->never())->method('getTransactionStatus');
 
-        $this->assertSame([], $this->reconciler->fetchStatus($order));
+        $this->assertSame([], $this->reconciler->fetchStatus($this->orderWithoutPayflexId()));
     }
 
     private function orderWithPayflexId(string $payflexId): Order
@@ -218,6 +179,18 @@ class OrderReconcilerTest extends TestCase
         $order = $this->createMock(Order::class);
         $order->method('getIncrementId')->willReturn('100000001');
         $order->method('getStoreId')->willReturn(1);
+        $order->method('getPayment')->willReturn($payment);
+
+        return $order;
+    }
+
+    private function orderWithoutPayflexId(): Order
+    {
+        $payment = $this->createMock(Payment::class);
+        $payment->method('getAdditionalInformation')->willReturn([]);
+
+        $order = $this->createMock(Order::class);
+        $order->method('getIncrementId')->willReturn('100000001');
         $order->method('getPayment')->willReturn($payment);
 
         return $order;

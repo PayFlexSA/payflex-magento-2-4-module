@@ -8,6 +8,7 @@ use Magento\Sales\Model\OrderFactory;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Model\RequestTokenFactory;
+use Payflex\Gateway\Model\ResourceModel\RequestToken as RequestTokenResource;
 use Payflex\Gateway\Service\OrderFinalizer;
 use Payflex\Gateway\Service\OrderReconciler;
 
@@ -38,6 +39,9 @@ abstract class CommonAction extends Action
     /** @var OrderFactory */
     private $orderFactory;
 
+    /** @var RequestTokenResource */
+    private $requestTokenResource;
+
     public function __construct(
         Context $context,
         PayflexLogger $logger,
@@ -46,7 +50,8 @@ abstract class CommonAction extends Action
         OrderFinalizer $orderFinalizer,
         OrderReconciler $orderReconciler,
         RequestTokenFactory $requestTokenFactory,
-        OrderFactory $orderFactory
+        OrderFactory $orderFactory,
+        RequestTokenResource $requestTokenResource
     ) {
         parent::__construct($context);
         $this->_logger = $logger;
@@ -56,6 +61,7 @@ abstract class CommonAction extends Action
         $this->orderReconciler = $orderReconciler;
         $this->requestTokenFactory = $requestTokenFactory;
         $this->orderFactory = $orderFactory;
+        $this->requestTokenResource = $requestTokenResource;
     }
 
     public function success()
@@ -70,13 +76,20 @@ abstract class CommonAction extends Action
         $this->_handlePaymentResponse(false);
     }
 
+    /**
+     * True when the token matches the Payflex order, and that Payflex order is
+     * the newest one created for the Magento order.
+     */
     protected function _validateToken($payflexId, $orderToken, $orderIncrementId)
     {
         $this->_logger->info(__METHOD__);
         $requestToken = $this->requestTokenFactory->create()->load($payflexId, "payflex_id");
+        $payflexIds = $this->requestTokenResource->getPayflexIds($orderIncrementId);
+
         return $requestToken->getId()
             && $requestToken->getToken() == $orderToken
-            && $requestToken->getOrderId() == $orderIncrementId;
+            && $requestToken->getOrderId() == $orderIncrementId
+            && end($payflexIds) === $payflexId;
     }
 
     /**

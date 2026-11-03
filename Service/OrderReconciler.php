@@ -7,7 +7,7 @@ use Magento\Framework\Lock\LockManagerInterface;
 use Magento\Sales\Model\Order;
 use Payflex\Gateway\Helper\Communication;
 use Payflex\Gateway\Logger\PayflexLogger;
-use Payflex\Gateway\Model\RequestTokenFactory;
+use Payflex\Gateway\Model\ResourceModel\RequestToken as RequestTokenResource;
 
 /**
  * Reads the live Payflex status for an order and applies it. Shared by the
@@ -30,8 +30,8 @@ class OrderReconciler
     /** @var OrderFinalizer */
     private $orderFinalizer;
 
-    /** @var RequestTokenFactory */
-    private $requestTokenFactory;
+    /** @var RequestTokenResource */
+    private $requestTokenResource;
 
     /** @var LockManagerInterface */
     private $lockManager;
@@ -40,13 +40,13 @@ class OrderReconciler
         PayflexLogger $logger,
         Communication $communication,
         OrderFinalizer $orderFinalizer,
-        RequestTokenFactory $requestTokenFactory,
+        RequestTokenResource $requestTokenResource,
         LockManagerInterface $lockManager
     ) {
         $this->logger = $logger;
         $this->communication = $communication;
         $this->orderFinalizer = $orderFinalizer;
-        $this->requestTokenFactory = $requestTokenFactory;
+        $this->requestTokenResource = $requestTokenResource;
         $this->lockManager = $lockManager;
     }
 
@@ -87,9 +87,10 @@ class OrderReconciler
             }
         }
 
-        $token = $this->requestTokenFactory->create()->load($order->getIncrementId(), 'order_id');
-        if ($token->getPayflexId()) {
-            return (string) $token->getPayflexId();
+        $payflexIds = $this->requestTokenResource->getPayflexIds($order->getIncrementId());
+        $latestId = end($payflexIds);
+        if ($latestId) {
+            return (string) $latestId;
         }
 
         return null;

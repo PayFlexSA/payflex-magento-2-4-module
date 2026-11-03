@@ -8,7 +8,7 @@ use Payflex\Gateway\Helper\Communication;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Helper\PaymentUtil;
 use Payflex\Gateway\Logger\PayflexLogger;
-use Payflex\Gateway\Model\RequestTokenFactory;
+use Payflex\Gateway\Model\ResourceModel\RequestToken as RequestTokenResource;
 
 class PaymentHelper
 {
@@ -24,21 +24,21 @@ class PaymentHelper
     /** @var Communication */
     protected $_communication;
 
-    /** @var RequestTokenFactory */
-    private $requestTokenFactory;
+    /** @var RequestTokenResource */
+    private $requestTokenResource;
 
 	public function __construct(
         PayflexLogger $logger,
         PaymentUtil $paymentUtil,
         Communication $communication,
         Configuration $configuration,
-        RequestTokenFactory $requestTokenFactory
+        RequestTokenResource $requestTokenResource
     ) {
         $this->_logger = $logger;
         $this->_paymentUtil = $paymentUtil;
         $this->_communication = $communication;
         $this->_configuration = $configuration;
-        $this->requestTokenFactory = $requestTokenFactory;
+        $this->requestTokenResource = $requestTokenResource;
 	}
 
 	public function isAvailable(?\Magento\Quote\Api\Data\CartInterface $quote = null)
@@ -97,8 +97,8 @@ class PaymentHelper
         $this->_logger->info(__METHOD__);
         $info                = $payment->getAdditionalInformation();
         $orderIncrementId    = $payment->getOrder()->getIncrementId();
-        $requestToken        = $this->requestTokenFactory->create()->load($orderIncrementId, "order_id");
-        $payflexId           = $requestToken->getpayflexId();
+        $payflexIds          = $this->requestTokenResource->getPayflexIds($orderIncrementId);
+        $payflexId           = end($payflexIds);
         // $payflexId = $this->_paymentUtil->findPayflexOrderForRefund($orderIncrementId, $info);
         $apiResult = $this->_communication->refund($orderIncrementId, $payflexId, $amount, $storeId);
 

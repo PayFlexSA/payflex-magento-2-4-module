@@ -153,6 +153,8 @@ class OrderFinalizer
             return self::RESULT_NONE;
         }
 
+        $this->logAmountMismatch($order, $payflexResponse, $payflexId);
+
         if ($order->getState() === Order::STATE_CANCELED) {
             $this->logger->critical(
                 __METHOD__ . " order {$order->getIncrementId()} is cancelled but Payflex reports it as paid"
@@ -185,6 +187,28 @@ class OrderFinalizer
         $this->markProcessed($order);
 
         return self::RESULT_CAPTURED;
+    }
+
+    /**
+     * Log a critical entry when the amount Payflex approved differs from the
+     * order's base grand total.
+     */
+    private function logAmountMismatch(Order $order, array $payflexResponse, string $payflexId): void
+    {
+        $payflexAmount = null;
+        if (isset($payflexResponse['amount'])) {
+            $payflexAmount = round((float) $payflexResponse['amount'], 2);
+        }
+
+        $orderAmount = round((float) $order->getBaseGrandTotal(), 2);
+        if ($payflexAmount === $orderAmount) {
+            return;
+        }
+
+        $this->logger->critical(
+            __METHOD__ . " amount mismatch on order {$order->getIncrementId()}: Payflex approved"
+            . " '{$payflexAmount}', the order base grand total is '{$orderAmount}'. Payflex Order ID: {$payflexId}"
+        );
     }
 
     /**

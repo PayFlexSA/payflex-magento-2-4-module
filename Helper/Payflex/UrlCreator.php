@@ -11,6 +11,7 @@ use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Helper\Support;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Model\RequestTokenFactory;
+use Payflex\Gateway\Model\ResourceModel\RequestToken as RequestTokenResource;
 
 /**
  * Builds the Payflex "create session" request from a quote, calls Payflex to
@@ -46,6 +47,9 @@ class UrlCreator
     /** @var ProductFactory */
     private $productFactory;
 
+    /** @var RequestTokenResource */
+    private $requestTokenResource;
+
     public function __construct(
         PayflexLogger $logger,
         Configuration $configuration,
@@ -55,7 +59,8 @@ class UrlCreator
         CheckoutSession $checkoutSession,
         ModuleListInterface $moduleList,
         DataObjectFactory $dataObjectFactory,
-        ProductFactory $productFactory
+        ProductFactory $productFactory,
+        RequestTokenResource $requestTokenResource
     ) {
         $this->_logger = $logger;
         $this->_configuration = $configuration;
@@ -66,6 +71,7 @@ class UrlCreator
         $this->moduleList = $moduleList;
         $this->dataObjectFactory = $dataObjectFactory;
         $this->productFactory = $productFactory;
+        $this->requestTokenResource = $requestTokenResource;
     }
 
     public function CreateUrl(\Magento\Quote\Model\Quote $quote)
@@ -86,24 +92,22 @@ class UrlCreator
             throw new InvalidTransitionException(__($error));
         }
 
-        $requestTokenModel = $this->requestTokenFactory->create();
-        $requestToken = $requestTokenModel->load($quote->getReservedOrderId(), "order_id");
-        if ($requestToken->getId()) {
-            $requestToken->setpayflexId($response['orderId']);
-            $requestToken->setUrl($response['redirectUrl']);
-            $requestToken->setToken($response['token']);
-            $requestToken->setExpire($response['expiryDateTime']);
-            $requestToken->save();
-        } else {
-            $requestTokenModel->setData([
-                "token"      => $response['token'],
-                "url"        => $response['redirectUrl'],
-                "expire"     => $response['expiryDateTime'],
-                "order_id"   => $quote->getReservedOrderId(),
-                "payflex_id" => $response['orderId'],
-            ]);
-            $requestTokenModel->save();
+        $orderIncrementId = $quote->getReservedOrderId();
+        $existingIds = $this->requestTokenResource->getPayflexIds($orderIncrementId);
+        if (!empty($existingIds)) {
+            $this->_logger->warning(__METHOD__ . " order {$orderIncrementId} already has Payflex order(s) "
+                . implode(', ', $existingIds) . "; adding {$response['orderId']}");
         }
+
+        $requestTokenModel = $this->requestTokenFactory->create();
+        $requestTokenModel->setData([
+            "token"      => $response['token'],
+            "url"        => $response['redirectUrl'],
+            "expire"     => $response['expiryDateTime'],
+            "order_id"   => $orderIncrementId,
+            "payflex_id" => $response['orderId'],
+        ]);
+        $requestTokenModel->save();
 
         $this->checkoutSession->setpayflexQuoteId($quote->getId());
 
