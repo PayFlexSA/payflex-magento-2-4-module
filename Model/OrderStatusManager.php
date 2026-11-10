@@ -64,8 +64,9 @@ class OrderStatusManager
 
     /**
      * Look up the live Payflex status for an order and report whether it is in
-     * sync with the Magento order. Also stores the freshly fetched status on the
-     * payment so the admin block stays current.
+     * sync with the Magento order. This is a read only: nothing is saved, not
+     * even the time of the check. Changes go through applyStatus(), which
+     * decides again from its own locked read.
      *
      * @param int $orderEntityId
      * @return array
@@ -85,8 +86,15 @@ class OrderStatusManager
             return $this->error(__('Could not retrieve the status from Payflex.'));
         }
 
+        // The lookups can take seconds, and the repository returns its cached
+        // copy, so compare against the order as it is now.
+        $order = $this->orderFactory->create()->loadByIncrementId($order->getIncrementId());
+        if (!$order->getId()) {
+            return $this->error(__('Order could not be loaded.'));
+        }
+
         $live = $response['orderStatus'];
-        $checkedAt = $this->orderReconciler->storeStatus($order, $live);
+        $checkedAt = date('Y-m-d H:i:s');
         $action = $this->resolveAction($order, $response);
 
         return [

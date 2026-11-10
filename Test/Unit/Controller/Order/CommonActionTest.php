@@ -9,6 +9,7 @@ use Magento\Framework\App\ResponseInterface;
 use Magento\Framework\App\Response\RedirectInterface;
 use Magento\Framework\Message\ManagerInterface;
 use Magento\Sales\Model\Order;
+use Magento\Sales\Model\Order\Payment;
 use Magento\Sales\Model\Order\Status\History;
 use Magento\Sales\Model\OrderFactory;
 use Payflex\Gateway\Controller\Order\Success;
@@ -123,6 +124,28 @@ class CommonActionTest extends TestCase
             ->with($this->anything(), 'checkout/onepage/success');
 
         $this->invoke('_handleCancelReturn', $staleOrder, 'pf-1');
+    }
+
+    /**
+     * A cancelled order goes back to the cart without saving the payment. The
+     * save happened outside the lock and could overwrite a newer payment row.
+     */
+    public function testCancelReturnThatCancelsTheOrderNeverSavesThePayment(): void
+    {
+        $this->orderFinalizer->method('isFinalized')->willReturn(false);
+        $this->orderReconciler->method('reconcile')->willReturn(OrderFinalizer::RESULT_CANCELLED);
+
+        $payment = $this->createMock(Payment::class);
+        $payment->expects($this->never())->method('save');
+
+        $freshOrder = $this->reloadedOrder($this->order(false));
+        $freshOrder->method('getPayment')->willReturn($payment);
+
+        $this->checkoutSession->expects($this->once())->method('restoreQuote');
+        $this->messageManager->expects($this->once())->method('addErrorMessage')
+            ->with($this->stringContains('cancelled or declined'));
+
+        $this->invoke('_handleCancelReturn', $this->order(false), 'pf-1');
     }
 
     public function testCancelReturnOnASuspectedFraudOrderKeepsTheCartEmpty(): void

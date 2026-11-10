@@ -6,6 +6,7 @@ use Magento\Sales\Api\OrderManagementInterface;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Email\Sender\InvoiceSender;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
+use Magento\Sales\Model\Order\Payment\Transaction\Repository as TransactionRepository;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Service\OrderFinalizer;
@@ -33,7 +34,8 @@ class OrderFinalizerTest extends TestCase
             $this->configuration,
             $this->createMock(OrderSender::class),
             $this->createMock(InvoiceSender::class),
-            $this->orderManagement
+            $this->orderManagement,
+            $this->createMock(TransactionRepository::class)
         );
     }
 

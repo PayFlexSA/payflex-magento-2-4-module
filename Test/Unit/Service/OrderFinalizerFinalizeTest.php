@@ -9,6 +9,7 @@ use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 use Magento\Sales\Model\Order\Invoice;
 use Magento\Sales\Model\Order\Payment;
 use Magento\Sales\Model\Order\Payment\Transaction;
+use Magento\Sales\Model\Order\Payment\Transaction\Repository as TransactionRepository;
 use Magento\Sales\Model\Order\Status\History;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Logger\PayflexLogger;
@@ -34,6 +35,9 @@ class OrderFinalizerFinalizeTest extends TestCase
     /** @var InvoiceSender&MockObject */
     private $invoiceSender;
 
+    /** @var TransactionRepository&MockObject */
+    private $transactionRepository;
+
     /** @var OrderFinalizer */
     private $finalizer;
 
@@ -43,13 +47,15 @@ class OrderFinalizerFinalizeTest extends TestCase
         $this->orderManagement = $this->createMock(OrderManagementInterface::class);
         $this->orderSender = $this->createMock(OrderSender::class);
         $this->invoiceSender = $this->createMock(InvoiceSender::class);
+        $this->transactionRepository = $this->createMock(TransactionRepository::class);
 
         $this->finalizer = new OrderFinalizer(
             $this->createMock(PayflexLogger::class),
             $this->configuration,
             $this->orderSender,
             $this->invoiceSender,
-            $this->orderManagement
+            $this->orderManagement,
+            $this->transactionRepository
         );
     }
 
@@ -89,6 +95,69 @@ class OrderFinalizerFinalizeTest extends TestCase
         $order->method('getPayment')->willReturn($payment);
 
         $this->assertTrue($this->finalizer->isFinalized($order));
+    }
+
+    /**
+     * A stale payment save can remove the processed marker. A cancelled order
+     * that has a capture transaction is still paid, so it stays final.
+     */
+    public function testCancelledOrderWithACaptureTransactionIsFinalized(): void
+    {
+        $payment = $this->payment();
+        $payment->setId(7);
+        $this->givenCaptureTransaction(7, 'pf-paid');
+
+        $order = $this->createMock(Order::class);
+        $order->method('hasInvoices')->willReturn(false);
+        $order->method('getState')->willReturn(Order::STATE_CANCELED);
+        $order->method('getPayment')->willReturn($payment);
+
+        $this->assertTrue($this->finalizer->isFinalized($order));
+    }
+
+    public function testCapturedPayflexIdPrefersTheCaptureTransaction(): void
+    {
+        $payment = $this->payment();
+        $payment->setId(7);
+        $payment->setAdditionalInformation('orderId', 'pf-other');
+        $this->givenCaptureTransaction(7, 'pf-paid');
+
+        $order = $this->createMock(Order::class);
+        $order->method('getPayment')->willReturn($payment);
+        $order->expects($this->never())->method('getInvoiceCollection');
+
+        $this->assertSame('pf-paid', $this->finalizer->getCapturedPayflexId($order));
+    }
+
+    public function testCapturedPayflexIdFallsBackToTheInvoiceTransactionId(): void
+    {
+        $payment = $this->payment();
+        $payment->setId(7);
+        $this->transactionRepository->method('getByTransactionType')->willReturn(false);
+
+        $invoice = $this->createMock(Invoice::class);
+        $invoice->method('getTransactionId')->willReturn('pf-invoiced');
+
+        $order = $this->createMock(Order::class);
+        $order->method('getPayment')->willReturn($payment);
+        $order->method('hasInvoices')->willReturn(true);
+        $order->method('getInvoiceCollection')->willReturn([$invoice]);
+
+        $this->assertSame('pf-invoiced', $this->finalizer->getCapturedPayflexId($order));
+    }
+
+    public function testCapturedPayflexIdIsNullWithoutACaptureOrAnInvoice(): void
+    {
+        $payment = $this->payment();
+        $payment->setId(7);
+        $payment->setAdditionalInformation('orderId', 'pf-other');
+        $this->transactionRepository->method('getByTransactionType')->willReturn(false);
+
+        $order = $this->createMock(Order::class);
+        $order->method('getPayment')->willReturn($payment);
+        $order->method('hasInvoices')->willReturn(false);
+
+        $this->assertNull($this->finalizer->getCapturedPayflexId($order));
     }
 
     public function testApprovedOrderWithMismatchedReferenceIsNotCaptured(): void
@@ -317,6 +386,15 @@ class OrderFinalizerFinalizeTest extends TestCase
     /**
      * A payment that keeps its data, with the core calls stubbed out.
      */
+    private function givenCaptureTransaction(int $paymentId, string $txnId): void
+    {
+        $transaction = $this->createMock(Transaction::class);
+        $transaction->method('getTxnId')->willReturn($txnId);
+        $this->transactionRepository->method('getByTransactionType')
+            ->with(Transaction::TYPE_CAPTURE, $paymentId)
+            ->willReturn($transaction);
+    }
+
     private function payment(): Payment
     {
         return $this->getMockBuilder(Payment::class)

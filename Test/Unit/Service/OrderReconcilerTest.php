@@ -35,6 +35,9 @@ class OrderReconcilerTest extends TestCase
     /** @var OrderFactory&MockObject */
     private $orderFactory;
 
+    /** @var PayflexLogger&MockObject */
+    private $logger;
+
     /** @var OrderReconciler */
     private $reconciler;
 
@@ -45,9 +48,10 @@ class OrderReconcilerTest extends TestCase
         $this->requestTokenResource = $this->createMock(RequestTokenResource::class);
         $this->lockManager = $this->createMock(LockManagerInterface::class);
         $this->orderFactory = $this->createMock(OrderFactory::class);
+        $this->logger = $this->createMock(PayflexLogger::class);
 
         $this->reconciler = new OrderReconciler(
-            $this->createMock(PayflexLogger::class),
+            $this->logger,
             $this->communication,
             $this->orderFinalizer,
             $this->requestTokenResource,
@@ -83,8 +87,8 @@ class OrderReconcilerTest extends TestCase
     }
 
     /**
-     * The order is loaded again once the lock is held, and only that copy is
-     * checked and finalised.
+     * The order is loaded again once the lock is held, and again after the
+     * lookups. Only those copies are checked and finalised.
      */
     public function testReconcileWorksOnTheOrderReloadedInsideTheLock(): void
     {
@@ -99,7 +103,7 @@ class OrderReconcilerTest extends TestCase
         $staleOrder->expects($this->never())->method('getPayment');
 
         $freshOrder = $this->orderWithPayflexId('pf-1');
-        $this->orderFactory->expects($this->once())->method('create')
+        $this->orderFactory->expects($this->exactly(2))->method('create')
             ->willReturnCallback(function () use (&$locked, $freshOrder) {
                 $this->assertTrue($locked, 'The order must be loaded after the lock is taken.');
                 return $freshOrder;
@@ -107,7 +111,7 @@ class OrderReconcilerTest extends TestCase
 
         $response = $this->response('pf-1', 'Approved');
         $this->communication->method('getTransactionStatus')->willReturn($response);
-        $this->orderFinalizer->expects($this->once())->method('isFinalized')->with($freshOrder)->willReturn(false);
+        $this->orderFinalizer->expects($this->exactly(2))->method('isFinalized')->with($freshOrder)->willReturn(false);
         $this->orderFinalizer->expects($this->once())
             ->method('finalizeFromStatus')
             ->with($freshOrder, $response, 'Payflex webhook')
@@ -239,6 +243,67 @@ class OrderReconcilerTest extends TestCase
         $this->reconciler->reconcile($order, 'Payflex webhook');
 
         $this->assertSame(['pf-old'], $order->getPayment()->getAdditionalInformation(OrderReconciler::FLAGGED_IDS_KEY));
+    }
+
+    /**
+     * Something outside the lock paid the order while Payflex was being read.
+     * The reload after the lookups sees it, and nothing is written.
+     */
+    public function testOrderFinalizedDuringTheLookupsIsLeftAlone(): void
+    {
+        $this->lockManager->method('lock')->willReturn(true);
+        $this->orderFinalizer->method('isFinalized')->willReturnOnConsecutiveCalls(false, true);
+        $this->orderFinalizer->expects($this->never())->method('finalizeFromStatus');
+        $this->communication->method('getTransactionStatus')->willReturn($this->response('pf-1', 'Approved'));
+
+        $order = $this->orderWithPayflexId('pf-1');
+        $order->getPayment()->expects($this->never())->method('save');
+
+        $this->assertSame(OrderFinalizer::RESULT_NONE, $this->reconciler->reconcile($order, 'Payflex webhook'));
+    }
+
+    /**
+     * A stale save put the unpaid attempt back on the payment. The paid id is
+     * read from the capture transaction, so the paid attempt is never named for
+     * a refund, and the difference is logged.
+     */
+    public function testLateApprovalCheckUsesTheCapturedIdWhenThePaymentWasReverted(): void
+    {
+        $this->lockManager->method('lock')->willReturn(true);
+        $this->orderFinalizer->method('isFinalized')->willReturn(true);
+        $this->orderFinalizer->method('getCapturedPayflexId')->willReturn('pf-paid');
+        $this->requestTokenResource->method('getPayflexIds')->willReturn(['pf-paid', 'pf-other']);
+        $this->communication->expects($this->once())
+            ->method('getTransactionStatus')
+            ->with('pf-other')
+            ->willReturn($this->response('pf-other', 'Abandoned'));
+
+        $this->logger->expects($this->once())
+            ->method('critical')
+            ->with($this->logicalAnd($this->stringContains('pf-paid'), $this->stringContains('pf-other')));
+
+        $order = $this->orderWithPayflexId('pf-other');
+        $order->expects($this->never())->method('addStatusHistoryComment');
+
+        $this->assertSame(OrderFinalizer::RESULT_NONE, $this->reconciler->reconcile($order, 'Payflex webhook'));
+    }
+
+    /**
+     * With no capture transaction and no id on the payment, nothing is looked
+     * up, because flagging nothing is safer than asking for the wrong refund.
+     */
+    public function testLateApprovalCheckIsSkippedWhenThePaidIdIsUnknown(): void
+    {
+        $this->lockManager->method('lock')->willReturn(true);
+        $this->orderFinalizer->method('isFinalized')->willReturn(true);
+        $this->orderFinalizer->method('getCapturedPayflexId')->willReturn(null);
+        $this->requestTokenResource->method('getPayflexIds')->willReturn(['pf-a', 'pf-b']);
+        $this->communication->expects($this->never())->method('getTransactionStatus');
+
+        $order = $this->orderWithoutPayflexId();
+        $order->expects($this->never())->method('addStatusHistoryComment');
+
+        $this->assertSame(OrderFinalizer::RESULT_NONE, $this->reconciler->reconcile($order, 'Payflex webhook'));
     }
 
     public function testLateApprovalLookupFailureIsIgnored(): void

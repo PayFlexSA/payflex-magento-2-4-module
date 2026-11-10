@@ -267,7 +267,6 @@ abstract class CommonAction extends Action
         $orderIncrementId = $order->getIncrementId();
 
         if ($action === OrderFinalizer::RESULT_CANCELLED) {
-            $this->savePaymentInfoForFailedPayment($order->getPayment());
             $error = "Transaction has been cancelled or declined Order ID: " . $orderIncrementId;
         } else {
             $this->_logger->info(__METHOD__ . " order {$orderIncrementId} left pending, action:{$action}");
@@ -323,35 +322,6 @@ abstract class CommonAction extends Action
         $this->_logger->info(__METHOD__ . " waiting for lock release. order:{$orderIncrementId} triedTime:{$triedTime}");
         sleep(1);
         $this->_forward($action, null, null, $params);
-    }
-
-    public function savePaymentInfoForSuccessfulPayment($payment, $response)
-    {
-        $this->_logger->info(__METHOD__);
-        $info = $payment->getAdditionalInformation();
-        $info = $this->_clearPaymentParameters($info);
-        $info = array_merge($info, $response);
-
-        $payment->unsAdditionalInformation();
-        $payment->setAdditionalInformation($info);
-        $payment->save();
-    }
-
-    public function savePaymentInfoForFailedPayment($payment)
-    {
-        $this->_logger->info(__METHOD__);
-        $info = $payment->getAdditionalInformation();
-        $info = $this->_clearPaymentParameters($info);
-
-        $payment->unsAdditionalInformation();
-        $payment->setAdditionalInformation($info);
-        $payment->save();
-    }
-
-    private function _clearPaymentParameters($info)
-    {
-        unset($info["cartId"], $info["guestEmail"], $info["method_title"]);
-        return $info;
     }
 
     private function _redirectToCartPageWithError($error)

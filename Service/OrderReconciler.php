@@ -75,9 +75,8 @@ class OrderReconciler
         }
 
         try {
-            $freshOrder = $this->orderFactory->create()->loadByIncrementId($orderIncrementId);
-            if (!$freshOrder->getId()) {
-                $this->logger->critical(__METHOD__ . " order {$orderIncrementId} could not be loaded");
+            $freshOrder = $this->loadOrder($orderIncrementId);
+            if ($freshOrder === null) {
                 return OrderFinalizer::RESULT_NONE;
             }
 
@@ -85,6 +84,21 @@ class OrderReconciler
         } finally {
             $this->unlockOrder($orderIncrementId);
         }
+    }
+
+    /**
+     * Load the order from the database, bypassing any cached copy. Returns null
+     * when it does not exist.
+     */
+    private function loadOrder(string $orderIncrementId): ?Order
+    {
+        $order = $this->orderFactory->create()->loadByIncrementId($orderIncrementId);
+        if (!$order->getId()) {
+            $this->logger->critical(__METHOD__ . " order {$orderIncrementId} could not be loaded");
+            return null;
+        }
+
+        return $order;
     }
 
     /**
@@ -186,9 +200,10 @@ class OrderReconciler
 
     /**
      * Record the latest Payflex status on the payment and return the timestamp
-     * that was stored.
+     * that was stored. Only call this while holding the order lock, on an order
+     * loaded inside it, because saving the payment overwrites the whole row.
      */
-    public function storeStatus(Order $order, $status): string
+    private function storeStatus(Order $order, $status): string
     {
         $now = date('Y-m-d H:i:s');
 
@@ -225,6 +240,20 @@ class OrderReconciler
         // Throw rather than return, so that a caller that can retry knows the
         // difference between a failed lookup and an order with nothing to do.
         $responses = $this->fetchStatuses($payflexIds, $order);
+
+        // The lookups can take seconds. Reload so the saves below start from the
+        // latest copy, in case a writer that does not take the lock, such as a
+        // core admin action, changed the order meanwhile.
+        $order = $this->loadOrder((string) $order->getIncrementId());
+        if ($order === null) {
+            return OrderFinalizer::RESULT_NONE;
+        }
+
+        if ($this->orderFinalizer->isFinalized($order)) {
+            $this->logger->info(__METHOD__ . " order {$order->getIncrementId()} was finalised during the lookups");
+            return OrderFinalizer::RESULT_NONE;
+        }
+
         $response = $this->selectResponse($order, $responses);
         if (empty($response['orderStatus'])) {
             throw new NotFoundException(
@@ -354,17 +383,44 @@ class OrderReconciler
                 return;
             }
 
-            $paidId = $this->getPaymentPayflexId($order);
+            $paidId = $this->getPaidPayflexId($order);
+            if ($paidId === null) {
+                $this->logger->critical(__METHOD__ . " order {$order->getIncrementId()} is finalised but its paid"
+                    . " Payflex order id is not known, so other approvals are not checked");
+                return;
+            }
+
             $otherIds = array_diff($payflexIds, $this->getFlaggedIds($order), [$paidId]);
             if (empty($otherIds)) {
                 return;
             }
 
             $approved = $this->approvedResponses($order, $this->fetchStatuses($otherIds, $order));
-            $this->flagExtraApprovals($order, array_keys($approved), (string) $paidId);
+            $this->flagExtraApprovals($order, array_keys($approved), $paidId);
         } catch (\Exception $e) {
             $this->logger->error(__METHOD__ . " order {$order->getIncrementId()} " . $e->getMessage());
         }
+    }
+
+    /**
+     * The Payflex order id that paid for a finalised order. The capture
+     * transaction is preferred, because a stale payment save can revert the id
+     * stored on the payment. Returns null when neither is known.
+     */
+    private function getPaidPayflexId(Order $order): ?string
+    {
+        $paymentId = $this->getPaymentPayflexId($order);
+        $capturedId = $this->orderFinalizer->getCapturedPayflexId($order);
+        if ($capturedId === null) {
+            return $paymentId;
+        }
+
+        if ($paymentId !== null && $paymentId !== $capturedId) {
+            $this->logger->critical(__METHOD__ . " order {$order->getIncrementId()} was paid with Payflex order"
+                . " {$capturedId}, but the payment records {$paymentId}");
+        }
+
+        return $capturedId;
     }
 
     /**

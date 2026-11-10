@@ -9,6 +9,7 @@ use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 use Magento\Sales\Model\Order\Invoice;
 use Magento\Sales\Model\Order\Payment;
 use Magento\Sales\Model\Order\Payment\Transaction;
+use Magento\Sales\Model\Order\Payment\Transaction\Repository as TransactionRepository;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Logger\PayflexLogger;
 
@@ -56,18 +57,23 @@ class OrderFinalizer
     /** @var OrderManagementInterface */
     private $orderManagement;
 
+    /** @var TransactionRepository */
+    private $transactionRepository;
+
     public function __construct(
         PayflexLogger $logger,
         Configuration $configuration,
         OrderSender $orderSender,
         InvoiceSender $invoiceSender,
-        OrderManagementInterface $orderManagement
+        OrderManagementInterface $orderManagement,
+        TransactionRepository $transactionRepository
     ) {
         $this->logger = $logger;
         $this->configuration = $configuration;
         $this->orderSender = $orderSender;
         $this->invoiceSender = $invoiceSender;
         $this->orderManagement = $orderManagement;
+        $this->transactionRepository = $transactionRepository;
     }
 
     /**
@@ -89,7 +95,9 @@ class OrderFinalizer
     }
 
     /**
-     * True when a Payflex payment has already been recorded on the order.
+     * True when a Payflex payment has already been recorded on the order. The
+     * capture transaction is also checked, because a stale payment save can
+     * remove the processed marker from additional information.
      */
     private function isPaymentRecorded(Order $order): bool
     {
@@ -98,7 +106,44 @@ class OrderFinalizer
             return false;
         }
 
-        return !empty($payment->getAdditionalInformation(self::PROCESSED_AT_KEY));
+        if (!empty($payment->getAdditionalInformation(self::PROCESSED_AT_KEY))) {
+            return true;
+        }
+
+        return $this->getCapturedPayflexId($order) !== null;
+    }
+
+    /**
+     * The Payflex order id that paid for the order: the capture transaction's
+     * id, else the first invoice's transaction id, else null. These are not
+     * stored on the payment row, so a stale payment save cannot change them.
+     */
+    public function getCapturedPayflexId(Order $order): ?string
+    {
+        $payment = $order->getPayment();
+        if ($payment && $payment->getId()) {
+            try {
+                $transaction = $this->transactionRepository->getByTransactionType(
+                    Transaction::TYPE_CAPTURE,
+                    $payment->getId()
+                );
+                if ($transaction && $transaction->getTxnId()) {
+                    return (string) $transaction->getTxnId();
+                }
+            } catch (\Exception $e) {
+                $this->logger->error(__METHOD__ . " order {$order->getIncrementId()} " . $e->getMessage());
+            }
+        }
+
+        if ($order->hasInvoices()) {
+            foreach ($order->getInvoiceCollection() as $invoice) {
+                if ($invoice->getTransactionId()) {
+                    return (string) $invoice->getTransactionId();
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

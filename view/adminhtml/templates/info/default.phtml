@@ -156,7 +156,7 @@ $isEmpty       = $transactionId === null && $status === null && empty($primaryRo
     <?php if ($hasOrder): ?>
         <div class="payflex-info__panel" data-payflex-panel="verify">
             <p class="payflex-info__hint">
-                <?= $esc->escapeHtml(__('Shows the payment status Payflex last reported (manually). Use Confirm Payflex Status to fetch the latest directly from Payflex.')) ?>
+                <?= $esc->escapeHtml(__('Shows the Payflex status last recorded on the order. Confirm Payflex Status checks Payflex now without changing the order. If they differ, use Update Order to Match.')) ?>
             </p>
 
             <div class="payflex-info__status-panel">
