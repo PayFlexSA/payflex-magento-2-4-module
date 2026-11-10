@@ -8,6 +8,8 @@ namespace Payflex\Gateway\Model;
 use Magento\Framework\Stdlib\DateTime\TimezoneInterface;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
+use Magento\Sales\Model\Order;
+use Magento\Sales\Model\OrderFactory;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Service\OrderFinalizer;
 use Payflex\Gateway\Service\OrderReconciler;
@@ -25,6 +27,11 @@ class OrderStatusManager
     private $orderReconciler;
 
     /**
+     * @var OrderFinalizer
+     */
+    private $orderFinalizer;
+
+    /**
      * @var PayflexLogger
      */
     private $logger;
@@ -34,16 +41,25 @@ class OrderStatusManager
      */
     private $localeDate;
 
+    /**
+     * @var OrderFactory
+     */
+    private $orderFactory;
+
     public function __construct(
         OrderRepositoryInterface $orderRepository,
         OrderReconciler $orderReconciler,
+        OrderFinalizer $orderFinalizer,
         PayflexLogger $logger,
-        TimezoneInterface $localeDate
+        TimezoneInterface $localeDate,
+        OrderFactory $orderFactory
     ) {
         $this->orderRepository = $orderRepository;
         $this->orderReconciler = $orderReconciler;
+        $this->orderFinalizer = $orderFinalizer;
         $this->logger = $logger;
         $this->localeDate = $localeDate;
+        $this->orderFactory = $orderFactory;
     }
 
     /**
@@ -71,7 +87,7 @@ class OrderStatusManager
 
         $live = $response['orderStatus'];
         $checkedAt = $this->orderReconciler->storeStatus($order, $live);
-        $action = $this->resolveAction($order, $live);
+        $action = $this->resolveAction($order, $response);
 
         return [
             'success'            => true,
@@ -81,9 +97,7 @@ class OrderStatusManager
             'checked_at'         => $this->formatCheckedAt($checkedAt),
             'mismatch'           => $action !== 'none',
             'action'             => $action,
-            'message'            => $action === 'none'
-                ? (string) __('The order is in sync with Payflex.')
-                : (string) __('The Payflex status differs from the order. You can update the order to match.'),
+            'message'            => (string) $this->checkMessage($action),
         ];
     }
 
@@ -115,8 +129,8 @@ class OrderStatusManager
             return $this->error(__('This order is already being updated. Please try again in a moment.'));
         }
 
-        // Reload to report the post-update status.
-        $order = $this->orderRepository->get((int) $orderEntityId);
+        // The repository returns its cached copy, so load the order again.
+        $order = $this->orderFactory->create()->loadByIncrementId($order->getIncrementId());
 
         return [
             'success'            => true,
@@ -134,13 +148,14 @@ class OrderStatusManager
      * Decide what corrective action (if any) is available for a live status.
      *
      * @param OrderInterface $order
-     * @param string $live
-     * @return string One of 'invoice', 'cancel', 'none'.
+     * @param array $response
+     * @return string One of 'invoice', 'fraud', 'review', 'cancel', 'none'.
      */
-    private function resolveAction(OrderInterface $order, $live)
+    private function resolveAction(OrderInterface $order, array $response)
     {
+        $live = $response['orderStatus'];
         if ($live === OrderFinalizer::STATUS_APPROVED) {
-            return $order->canInvoice() ? 'invoice' : 'none';
+            return $this->resolveApprovedAction($order, $response);
         }
 
         if (in_array($live, OrderFinalizer::FAILED_STATUSES, true)) {
@@ -148,6 +163,64 @@ class OrderStatusManager
         }
 
         return 'none';
+    }
+
+    /**
+     * What Update Status would do with an approved payment: invoice the order,
+     * mark it Suspected Fraud when the amount differs, or record the payment
+     * on a cancelled order for review.
+     *
+     * @param OrderInterface $order
+     * @param array $response
+     * @return string
+     */
+    private function resolveApprovedAction(OrderInterface $order, array $response)
+    {
+        if ($this->orderFinalizer->isFinalized($order)) {
+            return 'none';
+        }
+
+        if ($order->getState() === Order::STATE_CANCELED) {
+            return 'review';
+        }
+
+        if (!$order->canInvoice()) {
+            return 'none';
+        }
+
+        if (!$this->orderFinalizer->amountMatches($order, $response)) {
+            return 'fraud';
+        }
+
+        return 'invoice';
+    }
+
+    /**
+     * The admin message describing the action Check Status found.
+     *
+     * @param string $action
+     * @return \Magento\Framework\Phrase
+     */
+    private function checkMessage($action)
+    {
+        if ($action === 'none') {
+            return __('The order is in sync with Payflex.');
+        }
+
+        if ($action === 'fraud') {
+            return __(
+                'Payflex approved a different amount than the order total. Updating will record the payment'
+                . ' and mark the order as Suspected Fraud for review.'
+            );
+        }
+
+        if ($action === 'review') {
+            return __(
+                'Payflex reports this cancelled order as paid. Updating will record the payment for review.'
+            );
+        }
+
+        return __('The Payflex status differs from the order. You can update the order to match.');
     }
 
     /**
@@ -167,10 +240,7 @@ class OrderStatusManager
         }
 
         if ($action === OrderFinalizer::RESULT_NEEDS_REVIEW) {
-            return __(
-                'Payflex reports this cancelled order as paid. The payment has been recorded against the'
-                . ' order, but the order is still cancelled. Please read the order comments.'
-            );
+            return __('The Payflex payment was recorded, but the order needs to be reviewed. Please read the order comments.');
         }
 
         return __('No action was required; the order is already in sync.');

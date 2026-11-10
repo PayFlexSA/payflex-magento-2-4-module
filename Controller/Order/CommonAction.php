@@ -8,7 +8,6 @@ use Magento\Sales\Model\OrderFactory;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Logger\PayflexLogger;
 use Payflex\Gateway\Model\RequestTokenFactory;
-use Payflex\Gateway\Model\ResourceModel\RequestToken as RequestTokenResource;
 use Payflex\Gateway\Service\OrderFinalizer;
 use Payflex\Gateway\Service\OrderReconciler;
 
@@ -39,9 +38,6 @@ abstract class CommonAction extends Action
     /** @var OrderFactory */
     private $orderFactory;
 
-    /** @var RequestTokenResource */
-    private $requestTokenResource;
-
     public function __construct(
         Context $context,
         PayflexLogger $logger,
@@ -50,8 +46,7 @@ abstract class CommonAction extends Action
         OrderFinalizer $orderFinalizer,
         OrderReconciler $orderReconciler,
         RequestTokenFactory $requestTokenFactory,
-        OrderFactory $orderFactory,
-        RequestTokenResource $requestTokenResource
+        OrderFactory $orderFactory
     ) {
         parent::__construct($context);
         $this->_logger = $logger;
@@ -61,7 +56,6 @@ abstract class CommonAction extends Action
         $this->orderReconciler = $orderReconciler;
         $this->requestTokenFactory = $requestTokenFactory;
         $this->orderFactory = $orderFactory;
-        $this->requestTokenResource = $requestTokenResource;
     }
 
     public function success()
@@ -77,19 +71,16 @@ abstract class CommonAction extends Action
     }
 
     /**
-     * True when the token matches the Payflex order, and that Payflex order is
-     * the newest one created for the Magento order.
+     * True when the token matches a Payflex order created for the Magento order.
      */
     protected function _validateToken($payflexId, $orderToken, $orderIncrementId)
     {
         $this->_logger->info(__METHOD__);
         $requestToken = $this->requestTokenFactory->create()->load($payflexId, "payflex_id");
-        $payflexIds = $this->requestTokenResource->getPayflexIds($orderIncrementId);
 
         return $requestToken->getId()
             && $requestToken->getToken() == $orderToken
-            && $requestToken->getOrderId() == $orderIncrementId
-            && end($payflexIds) === $payflexId;
+            && $requestToken->getOrderId() == $orderIncrementId;
     }
 
     /**
@@ -157,6 +148,11 @@ abstract class CommonAction extends Action
 
         if ($this->orderFinalizer->isFinalized($order)) {
             $this->_logger->info(__METHOD__ . " order {$orderIncrementId} was already finalised");
+            if ($this->_needsReview($order)) {
+                $this->_redirectForReview($order);
+                return;
+            }
+
             $this->_redirectToCheckoutSuccess();
             return;
         }
@@ -174,6 +170,8 @@ abstract class CommonAction extends Action
             return;
         }
 
+        $order = $this->getOrderByIncrementId($orderIncrementId);
+
         if ($action === OrderFinalizer::RESULT_CAPTURED) {
             $this->_logger->info(__METHOD__ . " order {$orderIncrementId} captured, Payflex Order ID: {$payflexId}");
             $this->_redirectToCheckoutSuccess();
@@ -181,8 +179,7 @@ abstract class CommonAction extends Action
         }
 
         if ($action === OrderFinalizer::RESULT_NEEDS_REVIEW) {
-            $this->_logger->critical(__METHOD__ . " order {$orderIncrementId} is paid but cancelled");
-            $this->_redirectToCartPageWithError("Your payment went through but the order needs to be checked. Please contact support.");
+            $this->_redirectForReview($order);
             return;
         }
 
@@ -205,6 +202,11 @@ abstract class CommonAction extends Action
         }
 
         if ($this->orderFinalizer->isFinalized($order)) {
+            if ($this->_needsReview($order)) {
+                $this->_redirectForReview($order);
+                return;
+            }
+
             $this->_noteCancelAfterPayment($order);
             $this->_redirectToCheckoutSuccess();
             return;
@@ -222,13 +224,38 @@ abstract class CommonAction extends Action
             return;
         }
 
+        $order = $this->getOrderByIncrementId($orderIncrementId);
+
         if ($action === OrderFinalizer::RESULT_CAPTURED) {
             $this->_noteCancelAfterPayment($order);
             $this->_redirectToCheckoutSuccess();
             return;
         }
 
+        if ($action === OrderFinalizer::RESULT_NEEDS_REVIEW) {
+            $this->_redirectForReview($order);
+            return;
+        }
+
         $this->_returnToCartFor($order, $action);
+    }
+
+    /**
+     * True when a finalised order is paid but held for review or cancelled.
+     */
+    private function _needsReview($order)
+    {
+        return $order->isPaymentReview() || $order->isCanceled();
+    }
+
+    /**
+     * The payment went through but the order needs to be checked by hand. The
+     * cart is not restored, so the customer is not invited to pay again.
+     */
+    private function _redirectForReview($order)
+    {
+        $this->_logger->critical(__METHOD__ . " order {$order->getIncrementId()} is paid but needs review");
+        $this->_redirectToCartPageWithError("Your payment went through but the order needs to be checked. Please contact support.");
     }
 
     /**

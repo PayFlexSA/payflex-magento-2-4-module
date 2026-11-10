@@ -39,7 +39,7 @@ class Info extends PaymentInfo
         'cartId', 'guestEmail', 'token', 'expire', 'url',
         'method_title', 'orderId', 'payflex_id', 'orderStatus',
         'payflex_status_checked_at', 'payflex_processed_at',
-        'payflex_module_version',
+        'payflex_module_version', 'payflex_flagged_ids',
     ];
 
     /**

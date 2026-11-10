@@ -2,23 +2,21 @@
 
 namespace Payflex\Gateway\Service;
 
-use Magento\Framework\DB\TransactionFactory;
 use Magento\Sales\Api\OrderManagementInterface;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Order\Email\Sender\InvoiceSender;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 use Magento\Sales\Model\Order\Invoice;
+use Magento\Sales\Model\Order\Payment;
 use Magento\Sales\Model\Order\Payment\Transaction;
-use Magento\Sales\Model\Order\Payment\Transaction\Builder as TransactionBuilder;
-use Magento\Sales\Model\Service\InvoiceService;
 use Payflex\Gateway\Helper\Configuration;
 use Payflex\Gateway\Logger\PayflexLogger;
 
 /**
  * Single place that turns a verified Payflex transaction status into a finalised
  * Magento order. Shared by the return controllers, the reconciliation cron and
- * the webhook, so the "approved -> capture + invoice" and "declined -> cancel"
- * rules only exist once.
+ * the webhook, so the "approved -> capture" and "declined -> cancel" rules only
+ * exist once.
  */
 class OrderFinalizer
 {
@@ -28,17 +26,20 @@ class OrderFinalizer
     /** Payflex statuses meaning the order should be cancelled. */
     const FAILED_STATUSES = ['Declined', 'Abandoned'];
 
-    /** The order was captured, and invoiced if it could still be invoiced. */
+    /** The payment was captured and the order invoiced. */
     const RESULT_CAPTURED = 'captured';
 
     /** The order was cancelled. */
     const RESULT_CANCELLED = 'cancelled';
 
-    /** Payflex reports a paid order that Magento has already cancelled. */
+    /** The payment was recorded, but the order needs to be checked by hand. */
     const RESULT_NEEDS_REVIEW = 'needs_review';
 
     /** Nothing needed doing, or Payflex has not reached a final status yet. */
     const RESULT_NONE = 'none';
+
+    /** Payment additional information key set once a Payflex payment has been recorded. */
+    const PROCESSED_AT_KEY = 'payflex_processed_at';
 
     /** @var PayflexLogger */
     private $logger;
@@ -49,17 +50,8 @@ class OrderFinalizer
     /** @var OrderSender */
     private $orderSender;
 
-    /** @var InvoiceService */
-    private $invoiceService;
-
     /** @var InvoiceSender */
     private $invoiceSender;
-
-    /** @var TransactionBuilder */
-    private $transactionBuilder;
-
-    /** @var TransactionFactory */
-    private $transactionFactory;
 
     /** @var OrderManagementInterface */
     private $orderManagement;
@@ -68,26 +60,20 @@ class OrderFinalizer
         PayflexLogger $logger,
         Configuration $configuration,
         OrderSender $orderSender,
-        InvoiceService $invoiceService,
         InvoiceSender $invoiceSender,
-        TransactionBuilder $transactionBuilder,
-        TransactionFactory $transactionFactory,
         OrderManagementInterface $orderManagement
     ) {
         $this->logger = $logger;
         $this->configuration = $configuration;
         $this->orderSender = $orderSender;
-        $this->invoiceService = $invoiceService;
         $this->invoiceSender = $invoiceSender;
-        $this->transactionBuilder = $transactionBuilder;
-        $this->transactionFactory = $transactionFactory;
         $this->orderManagement = $orderManagement;
     }
 
     /**
-     * True when the order has already reached a final state and must not be
-     * captured again. Cancelled orders are not final here, so that a late
-     * approval from Payflex is still noticed.
+     * True when the order has already reached a final state or had its Payflex
+     * payment recorded, and must not be captured again. Other cancelled orders
+     * are not final here, so that a late approval from Payflex is still noticed.
      */
     public function isFinalized(Order $order): bool
     {
@@ -95,7 +81,24 @@ class OrderFinalizer
             return true;
         }
 
+        if ($this->isPaymentRecorded($order)) {
+            return true;
+        }
+
         return in_array($order->getState(), [Order::STATE_COMPLETE, Order::STATE_CLOSED], true);
+    }
+
+    /**
+     * True when a Payflex payment has already been recorded on the order.
+     */
+    private function isPaymentRecorded(Order $order): bool
+    {
+        $payment = $order->getPayment();
+        if (!$payment) {
+            return false;
+        }
+
+        return !empty($payment->getAdditionalInformation(self::PROCESSED_AT_KEY));
     }
 
     /**
@@ -153,101 +156,196 @@ class OrderFinalizer
             return self::RESULT_NONE;
         }
 
-        $this->logAmountMismatch($order, $payflexResponse, $payflexId);
+        $payment = $order->getPayment();
+        if (!$payment || $payflexId === '') {
+            $this->logger->error(__METHOD__ . " cannot record the payment for order {$order->getIncrementId()}");
+            return self::RESULT_NONE;
+        }
 
         if ($order->getState() === Order::STATE_CANCELED) {
-            $this->logger->critical(
-                __METHOD__ . " order {$order->getIncrementId()} is cancelled but Payflex reports it as paid"
-            );
+            return $this->recordPaymentOnCancelledOrder($order, $payment, $payflexResponse, $source, $payflexId);
+        }
 
-            $order->addStatusHistoryComment((string) __(
-                '%1: Payflex reports this cancelled order as paid. Payflex Order ID: %2. The payment has been'
-                . ' recorded against the order, but the order remains cancelled. Please review it and either'
-                . ' refund the customer or place the order again.',
-                $source,
-                $payflexId
-            ))->setIsCustomerNotified(false)->save();
+        $this->preparePayment($order, $payment, $payflexResponse, $payflexId);
+        $payment->registerCaptureNotification($this->approvedAmount($payflexResponse));
 
-            $this->createTransaction($order, $payflexResponse);
-            $this->markProcessed($order);
-
+        $invoice = $payment->getCreatedInvoice();
+        if (!$invoice) {
+            $this->noteAmountMismatch($order, $payflexResponse, $source, $payflexId);
+            $order->save();
             return self::RESULT_NEEDS_REVIEW;
         }
 
+        $this->applyNewOrderStatus($order);
         $order->addStatusHistoryComment((string) __(
             '%1: Payflex approved the payment. Payflex Order ID: %2',
             $source,
             $payflexId
-        ))->setIsCustomerNotified(false)->save();
+        ))->setIsCustomerNotified(false);
+        $order->save();
 
-        if (!$this->capture($order, $payflexResponse)) {
-            return self::RESULT_NONE;
-        }
-
-        $this->markProcessed($order);
+        $this->sendEmails($order, $invoice);
 
         return self::RESULT_CAPTURED;
     }
 
     /**
-     * Log a critical entry when the amount Payflex approved differs from the
-     * order's base grand total.
+     * Record the payment on an order that was cancelled before Payflex approved
+     * it, and leave the order cancelled for review.
      */
-    private function logAmountMismatch(Order $order, array $payflexResponse, string $payflexId): void
-    {
-        $payflexAmount = null;
-        if (isset($payflexResponse['amount'])) {
-            $payflexAmount = round((float) $payflexResponse['amount'], 2);
-        }
-
-        $orderAmount = round((float) $order->getBaseGrandTotal(), 2);
-        if ($payflexAmount === $orderAmount) {
-            return;
-        }
-
+    private function recordPaymentOnCancelledOrder(
+        Order $order,
+        Payment $payment,
+        array $payflexResponse,
+        string $source,
+        string $payflexId
+    ): string {
         $this->logger->critical(
-            __METHOD__ . " amount mismatch on order {$order->getIncrementId()}: Payflex approved"
-            . " '{$payflexAmount}', the order base grand total is '{$orderAmount}'. Payflex Order ID: {$payflexId}"
+            __METHOD__ . " order {$order->getIncrementId()} is cancelled but Payflex reports it as paid"
         );
+
+        $this->preparePayment($order, $payment, $payflexResponse, $payflexId);
+        $payment->addTransaction(Transaction::TYPE_CAPTURE, null, true);
+
+        $order->addStatusHistoryComment((string) __(
+            '%1: Payflex reports this cancelled order as paid. Payflex Order ID: %2. The payment has been'
+            . ' recorded against the order, but the order remains cancelled. Please review it and either'
+            . ' refund the customer or place the order again.',
+            $source,
+            $payflexId
+        ))->setIsCustomerNotified(false);
+        $order->save();
+
+        return self::RESULT_NEEDS_REVIEW;
     }
 
     /**
-     * Record on the payment that the order has been processed, for the admin
-     * payment information block.
+     * Point the payment at the approved Payflex order so that core records the
+     * capture transaction against it.
      */
-    private function markProcessed(Order $order): void
+    private function preparePayment(Order $order, Payment $payment, array $payflexResponse, string $payflexId): void
     {
-        $payment = $order->getPayment();
-        if (!$payment) {
-            return;
-        }
-
-        try {
-            $payment->setAdditionalInformation('payflex_processed_at', date('Y-m-d H:i:s'));
-            $payment->save();
-        } catch (\Exception $e) {
-            $this->logger->error(__METHOD__ . ' ' . $e->getMessage());
-        }
+        $payment->setTransactionId($payflexId);
+        $payment->setCurrencyCode($order->getBaseCurrencyCode());
+        $payment->setIsTransactionClosed(0);
+        $payment->setTransactionAdditionalInfo(Transaction::RAW_DETAILS, $this->rawDetails($payflexResponse));
+        $payment->setAdditionalInformation('orderId', $payflexId);
+        $payment->setAdditionalInformation(self::PROCESSED_AT_KEY, date('Y-m-d H:i:s'));
     }
 
     /**
-     * Capture an approved order: record the capture transaction and, if the order
-     * can still be invoiced, generate the invoice. Returns true when the order
-     * was captured.
+     * The flat values of the Payflex response, for the transaction details.
      */
-    public function capture(Order $order, array $payflexResponse): bool
+    private function rawDetails(array $payflexResponse): array
     {
-        $transactionId = $this->createTransaction($order, $payflexResponse);
-        if ($transactionId === false) {
+        $details = [];
+        foreach ($payflexResponse as $key => $value) {
+            if (is_scalar($value)) {
+                $details[$key] = $value;
+            }
+        }
+
+        return $details;
+    }
+
+    /**
+     * The amount Payflex approved, or zero when the response has none.
+     */
+    private function approvedAmount(array $payflexResponse): float
+    {
+        if (!isset($payflexResponse['amount'])) {
+            return 0.0;
+        }
+
+        return (float) $payflexResponse['amount'];
+    }
+
+    /**
+     * True when core would invoice the amount Payflex approved, that is when it
+     * equals the order's base total due.
+     */
+    public function amountMatches(Order $order, array $payflexResponse): bool
+    {
+        if (!isset($payflexResponse['amount'])) {
             return false;
         }
 
-        if ($order->canInvoice() && !$order->hasInvoices()) {
-            $this->logger->info(__METHOD__ . ' generating invoice for order ' . $order->getIncrementId());
-            $this->generateInvoice($order);
+        $payment = $order->getPayment();
+        if (!$payment) {
+            return false;
         }
 
-        return true;
+        return (bool) $payment->isCaptureFinal($this->approvedAmount($payflexResponse));
+    }
+
+    /**
+     * Log and comment on an approved payment whose amount differs from the order.
+     */
+    private function noteAmountMismatch(Order $order, array $payflexResponse, string $source, string $payflexId): void
+    {
+        $payflexAmount = $this->formatAmount($this->approvedAmount($payflexResponse));
+        $orderAmount = $this->formatAmount($order->getBaseTotalDue());
+
+        $this->logger->critical(
+            __METHOD__ . " amount mismatch on order {$order->getIncrementId()}: Payflex approved"
+            . " '{$payflexAmount}', the order base total due is '{$orderAmount}'. Payflex Order ID: {$payflexId}"
+        );
+
+        $order->addStatusHistoryComment((string) __(
+            '%1: Payflex approved %2, but the order total due is %3. Payflex Order ID: %4. The order is in'
+            . ' payment review and was not invoiced. Either Accept Payment and invoice the order, or Deny Payment'
+            . ' and refund the payment in the Payflex portal. If Payflex approved less than the total, invoice'
+            . ' offline and settle the difference, because an online invoice records the full total.',
+            $source,
+            $payflexAmount,
+            $orderAmount,
+            $payflexId
+        ))->setIsCustomerNotified(false);
+    }
+
+    /**
+     * An amount rounded to two decimals, for comparing and displaying.
+     */
+    private function formatAmount($amount): string
+    {
+        return number_format((float) $amount, 2, '.', '');
+    }
+
+    /**
+     * Move a paid order to the state and status configured for Payflex.
+     */
+    private function applyNewOrderStatus(Order $order): void
+    {
+        $storeId = $order->getStoreId();
+        $order->setState($this->configuration->getPayflexNewOrderState($storeId));
+        $order->setStatus($this->configuration->getPayflexNewOrderStatus($storeId));
+    }
+
+    /**
+     * Send the order and invoice emails when they are enabled. A failure is
+     * logged only, because the payment has already been saved.
+     */
+    private function sendEmails(Order $order, Invoice $invoice): void
+    {
+        $storeId = $order->getStoreId();
+
+        try {
+            if ($this->configuration->getOrderEmail($storeId) != '0') {
+                $this->orderSender->send($order);
+                $order->addStatusHistoryComment(__('Notified customer about order #%1.', $order->getId()))
+                    ->setIsCustomerNotified(true)
+                    ->save();
+            }
+
+            if ($this->configuration->getInvoiceEmail($storeId) != '0') {
+                $this->invoiceSender->send($invoice);
+                $order->addStatusHistoryComment(__('Notified customer about invoice #%1.', $invoice->getId()))
+                    ->setIsCustomerNotified(true)
+                    ->save();
+            }
+        } catch (\Exception $e) {
+            $this->logger->error(__METHOD__ . " order {$order->getIncrementId()} " . $e->getMessage());
+        }
     }
 
     /**
@@ -270,97 +368,5 @@ class OrderFinalizer
         $order->save();
 
         return true;
-    }
-
-    /**
-     * Build and persist the capture transaction for an approved Payflex order.
-     *
-     * Rejects anything that is not an approved response for THIS order: the
-     * status must be "Approved" and the merchantReference must match the order
-     * increment id (either condition failing is a rejection).
-     *
-     * @return string|false the transaction id on success, false when rejected
-     */
-    public function createTransaction(Order $order, array $paymentData)
-    {
-        $this->logger->info(__METHOD__);
-        try {
-            if ($paymentData['orderStatus'] != 'Approved'
-                || $paymentData['merchantReference'] != $order->getIncrementId()) {
-                $this->logger->info(__METHOD__ . ': order mismatched, not capturing');
-                return false;
-            }
-
-            $payment = $order->getPayment();
-            if (!$payment) {
-                $this->logger->error(__METHOD__ . ': order ' . $order->getIncrementId() . ' has no payment');
-                return false;
-            }
-
-            $payment->setLastTransId($paymentData['orderId'])
-                ->setTransactionId($paymentData['orderId']);
-
-            $formattedPrice = $order->getBaseCurrency()->formatTxt($order->getGrandTotal());
-            $message = __('The authorized amount is %1.', $formattedPrice);
-
-            $transaction = $this->transactionBuilder->setPayment($payment)
-                ->setOrder($order)
-                ->setTransactionId($paymentData['orderId'])
-                ->setAdditionalInformation($paymentData)
-                ->setFailSafe(true)
-                ->build(Transaction::TYPE_CAPTURE);
-
-            $payment->addTransactionCommentsToOrder($transaction, $message);
-            $payment->setParentTransactionId(null);
-            $payment->save();
-
-            return $transaction->save()->getTransactionId();
-        } catch (\Exception $e) {
-            $this->logger->error($e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Create an online-capture invoice for the order and move it to the
-     * configured paid state/status, sending order/invoice emails per config.
-     */
-    public function generateInvoice(Order $order): void
-    {
-        $storeId = $order->getStoreId();
-        $state  = $this->configuration->getPayflexNewOrderState($storeId);
-        $status = $this->configuration->getPayflexNewOrderStatus($storeId);
-
-        if ($this->configuration->getOrderEmail($storeId) != '0') {
-            $this->orderSender->send($order);
-            $order->addStatusHistoryComment(__('Notified customer about order #%1.', $order->getId()))
-                ->setIsCustomerNotified(true)
-                ->save();
-        }
-
-        $invoice = $this->invoiceService->prepareInvoice($order);
-        $invoice->setRequestedCaptureCase(Invoice::CAPTURE_ONLINE);
-        $invoice->register();
-
-        $invoiceOrder = $invoice->getOrder();
-        $invoiceOrder->setStatus($status);
-        $invoiceOrder->setState($state);
-        $invoiceOrder->addStatusHistoryComment(
-            'Payment confirmed, Payflex Transaction ID: ' . $invoice->getTransactionId(),
-            $invoiceOrder->getStatus()
-        );
-        $invoiceOrder->save();
-
-        $this->transactionFactory->create()
-            ->addObject($invoice)
-            ->addObject($invoiceOrder)
-            ->save();
-
-        if ($this->configuration->getInvoiceEmail($storeId) != '0') {
-            $this->invoiceSender->send($invoice);
-            $order->addStatusHistoryComment(__('Notified customer about invoice #%1.', $invoice->getId()))
-                ->setIsCustomerNotified(true)
-                ->save();
-        }
     }
 }

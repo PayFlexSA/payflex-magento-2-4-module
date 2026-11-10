@@ -95,11 +95,8 @@ class PaymentHelper
     public function refund(\Magento\Sales\Model\Order\Payment $payment, $amount, $storeId)
     {
         $this->_logger->info(__METHOD__);
-        $info                = $payment->getAdditionalInformation();
         $orderIncrementId    = $payment->getOrder()->getIncrementId();
-        $payflexIds          = $this->requestTokenResource->getPayflexIds($orderIncrementId);
-        $payflexId           = end($payflexIds);
-        // $payflexId = $this->_paymentUtil->findPayflexOrderForRefund($orderIncrementId, $info);
+        $payflexId           = $this->getRefundPayflexId($payment, $orderIncrementId);
         $apiResult = $this->_communication->refund($orderIncrementId, $payflexId, $amount, $storeId);
 
         $orderId = "unknown";
@@ -118,5 +115,25 @@ class PaymentHelper
         }
 
         $this->_paymentUtil->savePayflexRefundResponse($payment, $response);
+    }
+
+    /**
+     * The Payflex order id to refund: the capture transaction of the invoice
+     * being refunded, else the paid id stored on the payment, else the newest
+     * Payflex order created for the Magento order.
+     */
+    private function getRefundPayflexId(\Magento\Sales\Model\Order\Payment $payment, $orderIncrementId)
+    {
+        if ($payment->getRefundTransactionId()) {
+            return (string) $payment->getRefundTransactionId();
+        }
+
+        $info = (array) $payment->getAdditionalInformation();
+        if (!empty($info['orderId'])) {
+            return (string) $info['orderId'];
+        }
+
+        $payflexIds = $this->requestTokenResource->getPayflexIds($orderIncrementId);
+        return end($payflexIds);
     }
 }

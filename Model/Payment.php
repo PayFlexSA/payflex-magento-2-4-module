@@ -26,6 +26,8 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
 
     protected $_canRefundInvoicePartial = true;
 
+    protected $_canReviewPayment = true;
+
     protected $_isInitializeNeeded = true;
 
     protected $communication;
@@ -130,6 +132,32 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         $this->_logger->info(__METHOD__);
         $this->_paymentHelper->refund($payment, $amount, $this->getStore());
         return $this;
+    }
+
+    /**
+     * Accept a payment held for review. Payflex has already taken it, so there is nothing to send.
+     */
+    public function acceptPayment(\Magento\Payment\Model\InfoInterface $payment)
+    {
+        $this->_logger->info(__METHOD__);
+        return true;
+    }
+
+    /**
+     * Deny a payment held for review. Nothing is sent to Payflex, so core's deny
+     * comment is prefixed with a reminder to refund the payment in the Payflex portal.
+     */
+    public function denyPayment(\Magento\Payment\Model\InfoInterface $payment)
+    {
+        $payflexId = (string) $payment->getAdditionalInformation('orderId');
+        $this->_logger->info(__METHOD__ . " Payflex Order ID: {$payflexId}");
+
+        $payment->setPreparedMessage(__(
+            'Payflex: the payment was not refunded. Please refund Payflex Order ID %1 in the Payflex portal.',
+            $payflexId
+        ));
+
+        return true;
     }
 
     public function isAvailable(?\Magento\Quote\Api\Data\CartInterface $quote = null)
