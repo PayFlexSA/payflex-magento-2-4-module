@@ -343,11 +343,18 @@
         var row = btn.closest('tr');
         busy(btn, true, 'Check Status');
         fetch(btn.getAttribute('data-check-url'), {
-            method: 'GET',
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'form_key=' + encodeURIComponent(formKey)
         }).then(function (r) { return r.json(); }).then(function (data) {
             busy(btn, false, 'Check Status');
             showResult(row, summary(data), data.success);
+            if (data.success) {
+                refreshStatusBadge(row, data.order_status);
+            }
             var updateBtn = row.querySelector('.payflex-update-status');
             if (updateBtn) {
                 updateBtn.style.display = data.mismatch ? '' : 'none';

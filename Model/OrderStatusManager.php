@@ -17,6 +17,12 @@ use Payflex\Gateway\Service\OrderReconciler;
 class OrderStatusManager
 {
     /**
+     * Check Status actions that are applied straight away. Fraud and review
+     * outcomes need a person to look at them, so they are only reported.
+     */
+    const AUTO_APPLY_ACTIONS = ['invoice', 'cancel'];
+
+    /**
      * @var OrderRepositoryInterface
      */
     private $orderRepository;
@@ -107,6 +113,37 @@ class OrderStatusManager
             'action'             => $action,
             'message'            => (string) $this->checkMessage($action),
         ];
+    }
+
+    /**
+     * The admin Check Status action: look the order up at Payflex and, when it
+     * only needs invoicing or cancelling, apply that through applyStatus().
+     * applyStatus() takes the lock and decides again from its own read, so
+     * nothing is done based on the unlocked check alone. Other outcomes are
+     * reported, and the order is left unchanged.
+     *
+     * @param int $orderEntityId
+     * @return array The checkStatus() or applyStatus() result, with 'updated'
+     *               set to true when the order was changed.
+     */
+    public function checkAndApply($orderEntityId)
+    {
+        $check = $this->checkStatus($orderEntityId);
+        $check['updated'] = false;
+
+        if (empty($check['success']) || !in_array($check['action'], self::AUTO_APPLY_ACTIONS, true)) {
+            return $check;
+        }
+
+        $applied = $this->applyStatus($orderEntityId);
+        if (empty($applied['success'])) {
+            // Keep the check result, so the admin can see the status and retry.
+            $check['message'] = $applied['message'];
+            return $check;
+        }
+
+        $applied['updated'] = true;
+        return $applied;
     }
 
     /**

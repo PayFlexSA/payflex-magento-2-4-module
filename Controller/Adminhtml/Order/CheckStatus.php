@@ -1,8 +1,9 @@
 <?php
 /**
- * Admin AJAX endpoint: look up the live Payflex status for an order.
- *
- * Read-only — performs no changes to the order. URL: payflex/order/checkStatus
+ * Admin AJAX endpoint: look up the live Payflex status for an order, and invoice
+ * or cancel it when that is all it needs. Payments that need review are only
+ * reported. POST only, protected by the admin form key, because it can change
+ * the order. URL: payflex/order/checkStatus
  */
 
 namespace Payflex\Gateway\Controller\Adminhtml\Order;
@@ -53,14 +54,18 @@ class CheckStatus extends Action
     public function execute()
     {
         $result = $this->resultJsonFactory->create();
-        $orderId = (int) $this->getRequest()->getParam('order_id');
 
+        if (!$this->getRequest()->isPost()) {
+            return $result->setData(['success' => false, 'message' => (string) __('Invalid request method.')]);
+        }
+
+        $orderId = (int) $this->getRequest()->getParam('order_id');
         if (!$orderId) {
             return $result->setData(['success' => false, 'message' => (string) __('Missing order id.')]);
         }
 
         try {
-            $data = $this->statusManager->checkStatus($orderId);
+            $data = $this->statusManager->checkAndApply($orderId);
         } catch (\Exception $e) {
             $this->logger->error(__METHOD__ . ' ' . $e->getMessage());
             $data = ['success' => false, 'message' => (string) __('Could not check the Payflex status.')];

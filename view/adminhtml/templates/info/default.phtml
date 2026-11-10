@@ -156,7 +156,7 @@ $isEmpty       = $transactionId === null && $status === null && empty($primaryRo
     <?php if ($hasOrder): ?>
         <div class="payflex-info__panel" data-payflex-panel="verify">
             <p class="payflex-info__hint">
-                <?= $esc->escapeHtml(__('Shows the Payflex status last recorded on the order. Confirm Payflex Status checks Payflex now without changing the order. If they differ, use Update Order to Match.')) ?>
+                <?= $esc->escapeHtml(__('Shows the Payflex status last recorded on the order. Confirm Payflex Status checks Payflex now, and invoices or cancels the order when Payflex shows it as paid or failed. A payment that needs review is only reported. Check it, then use Update Order to Match.')) ?>
             </p>
 
             <div class="payflex-info__status-panel">
@@ -304,10 +304,14 @@ $isEmpty       = $transactionId === null && $status === null && empty($primaryRo
     if (checkBtn) {
         checkBtn.addEventListener('click', function () {
             busy(checkBtn, true);
-            request(checkUrl).then(function (data) {
+            request(checkUrl, 'form_key=' + encodeURIComponent(formKey)).then(function (data) {
                 busy(checkBtn, false, '<?= $esc->escapeJs(__('Confirm Payflex Status')) ?>');
                 applyResult(data);
-                showMessage(data.message || '', data.success ? (data.mismatch ? 'warning' : 'ok') : 'error');
+                var message = data.message || '';
+                if (data.updated) {
+                    message += ' <?= $esc->escapeJs(__('Reload the page to see the changes.')) ?>';
+                }
+                showMessage(message, data.success ? (data.mismatch ? 'warning' : 'ok') : 'error');
             }).catch(function () {
                 busy(checkBtn, false, '<?= $esc->escapeJs(__('Confirm Payflex Status')) ?>');
                 showMessage('<?= $esc->escapeJs(__('Could not reach Payflex. Please try again.')) ?>', false);

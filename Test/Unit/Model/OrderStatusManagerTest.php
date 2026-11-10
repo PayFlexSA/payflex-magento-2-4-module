@@ -153,6 +153,124 @@ class OrderStatusManagerTest extends TestCase
     }
 
     /**
+     * Check Status invoices an approved pending order through the locked
+     * Update path, which decides again from its own read.
+     */
+    public function testCheckAndApplyInvoicesThroughTheLockedUpdatePath(): void
+    {
+        $freshOrder = $this->order();
+        $this->givenOrders($this->order(), $freshOrder);
+        $this->orderReconciler->method('fetchStatus')->willReturn($this->response('Approved'));
+        $this->orderFinalizer->method('isFinalized')->willReturn(false);
+        $this->orderFinalizer->method('amountMatches')->willReturn(true);
+        $freshOrder->method('canInvoice')->willReturn(true);
+        $this->orderReconciler->expects($this->once())
+            ->method('reconcile')
+            ->with($this->anything(), 'Payflex admin')
+            ->willReturn(OrderFinalizer::RESULT_CAPTURED);
+
+        $result = $this->manager->checkAndApply(5);
+
+        $this->assertTrue($result['success']);
+        $this->assertTrue($result['updated']);
+        $this->assertFalse($result['mismatch']);
+        $this->assertSame('Payment confirmed and the order has been invoiced.', $result['message']);
+    }
+
+    public function testCheckAndApplyCancelsWhenEveryAttemptFailed(): void
+    {
+        $freshOrder = $this->order();
+        $this->givenOrders($this->order(), $freshOrder);
+        $this->orderReconciler->method('fetchStatus')->willReturn($this->response('Abandoned'));
+        $freshOrder->method('canCancel')->willReturn(true);
+        $this->orderReconciler->expects($this->once())
+            ->method('reconcile')
+            ->willReturn(OrderFinalizer::RESULT_CANCELLED);
+
+        $result = $this->manager->checkAndApply(5);
+
+        $this->assertTrue($result['updated']);
+        $this->assertSame('The order has been cancelled.', $result['message']);
+    }
+
+    /**
+     * A wrong amount or a paid, cancelled order needs a person to look at it,
+     * so Check Status only reports it.
+     *
+     * @dataProvider reviewCases
+     */
+    public function testCheckAndApplyOnlyReportsPaymentsThatNeedReview(string $state, bool $amountMatches, string $action): void
+    {
+        $freshOrder = $this->order();
+        $freshOrder->method('getState')->willReturn($state);
+        $freshOrder->method('canInvoice')->willReturn(true);
+        $this->givenOrders($this->order(), $freshOrder);
+        $this->orderReconciler->method('fetchStatus')->willReturn($this->response('Approved'));
+        $this->orderFinalizer->method('isFinalized')->willReturn(false);
+        $this->orderFinalizer->method('amountMatches')->willReturn($amountMatches);
+        $this->orderReconciler->expects($this->never())->method('reconcile');
+
+        $result = $this->manager->checkAndApply(5);
+
+        $this->assertSame($action, $result['action']);
+        $this->assertTrue($result['mismatch']);
+        $this->assertFalse($result['updated']);
+    }
+
+    public static function reviewCases(): array
+    {
+        return [
+            'amount differs'         => [Order::STATE_PENDING_PAYMENT, false, 'fraud'],
+            'paid but cancelled'     => [Order::STATE_CANCELED, true, 'review'],
+        ];
+    }
+
+    public function testCheckAndApplyLeavesAnOrderInSyncAlone(): void
+    {
+        $this->givenOrders($this->order(), $this->order());
+        $this->orderReconciler->method('fetchStatus')->willReturn($this->response('Created'));
+        $this->orderReconciler->expects($this->never())->method('reconcile');
+
+        $result = $this->manager->checkAndApply(5);
+
+        $this->assertSame('none', $result['action']);
+        $this->assertFalse($result['updated']);
+    }
+
+    /**
+     * Another process holds the lock. The check result is kept, with the busy
+     * message, so the admin sees the status and can use Update to retry.
+     */
+    public function testCheckAndApplyKeepsTheCheckResultWhenTheOrderIsLocked(): void
+    {
+        $freshOrder = $this->order();
+        $freshOrder->method('canCancel')->willReturn(true);
+        $this->givenOrders($this->order(), $freshOrder);
+        $this->orderReconciler->method('fetchStatus')->willReturn($this->response('Abandoned'));
+        $this->orderReconciler->method('reconcile')->willReturn(OrderReconciler::RESULT_BUSY);
+
+        $result = $this->manager->checkAndApply(5);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('cancel', $result['action']);
+        $this->assertTrue($result['mismatch']);
+        $this->assertFalse($result['updated']);
+        $this->assertStringContainsString('already being updated', $result['message']);
+    }
+
+    public function testCheckAndApplyDoesNothingWhenPayflexCannotBeRead(): void
+    {
+        $this->orderRepository->method('get')->willReturn($this->order());
+        $this->orderReconciler->method('fetchStatus')->willReturn([]);
+        $this->orderReconciler->expects($this->never())->method('reconcile');
+
+        $result = $this->manager->checkAndApply(5);
+
+        $this->assertFalse($result['success']);
+        $this->assertFalse($result['updated']);
+    }
+
+    /**
      * The repository returns the stale order, and the factory reloads the fresh one.
      */
     private function givenOrders(Order $staleOrder, Order $freshOrder): void
