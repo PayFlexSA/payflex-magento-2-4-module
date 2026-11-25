@@ -9,7 +9,6 @@
         <policy id="script-src">
             <values>
                 <value id="js-payflex" type="host">https://widgets.payflex.co.za</value>
-                <value id="js-partpayassets" type="host">https://partpayassets.blob.core.windows.net</value>
             </values>
         </policy>
         <policy id="style-src">
